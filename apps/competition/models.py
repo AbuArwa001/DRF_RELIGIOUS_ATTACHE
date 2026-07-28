@@ -3,6 +3,12 @@ Competition app — models: Category, Registration, CompetitionSettings.
 """
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+from .storage import (
+    PassportPhotoStorage,
+    IDDocumentStorage,
+    passport_photo_upload_path,
+    id_document_upload_path,
+)
 
 
 class Category(models.Model):
@@ -48,14 +54,16 @@ class Registration(models.Model):
     phone_number = models.CharField(_('Phone number'), max_length=30, blank=True)
     email = models.EmailField(_('Email address'), blank=True)
 
-    # File uploads
+    # File uploads — stored in AWS S3 under: religionattche/<registrant_name>/
     id_document = models.FileField(
         _('ID document (National ID / Birth Cert / Passport)'),
-        upload_to='documents/%Y/%m/',
+        upload_to=id_document_upload_path,
+        storage=IDDocumentStorage(),
     )
     passport_photo = models.ImageField(
         _('Passport photo (colour)'),
-        upload_to='photos/%Y/%m/',
+        upload_to=passport_photo_upload_path,
+        storage=PassportPhotoStorage(),
     )
 
     # Review fields

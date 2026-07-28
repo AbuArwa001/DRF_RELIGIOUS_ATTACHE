@@ -22,6 +22,7 @@ INSTALLED_APPS = [
     # Third-party
     'rest_framework',
     'corsheaders',
+    'storages',              # django-storages for AWS S3
     # Local
     'apps.competition',
     'apps.accounts',
@@ -118,3 +119,34 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': False,
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
+# ─── AWS S3 Media Storage ─────────────────────────────────────────────────────
+# Set USE_S3=True in your .env to enable cloud storage.
+# When False (default in dev) uploads go to MEDIA_ROOT on the local filesystem.
+USE_S3 = config('USE_S3', default=False, cast=bool)
+
+if USE_S3:
+    # ── Bucket & region ──────────────────────────────────────────────────────
+    AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME', default='religionattche')
+    AWS_S3_REGION_NAME      = config('AWS_S3_REGION_NAME',      default='us-east-1')
+
+    # ── Credentials (IAM user: jmcDonation) ─────────────────────────────────
+    AWS_ACCESS_KEY_ID     = config('AWS_ACCESS_KEY_ID')
+    AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY')
+
+    # ── Behaviour ────────────────────────────────────────────────────────────
+    AWS_DEFAULT_ACL            = 'private'       # never make files public by default
+    AWS_S3_FILE_OVERWRITE      = True            # replace file on re-upload (same key)
+    AWS_QUERYSTRING_AUTH       = True            # use presigned URLs for access
+    AWS_S3_SIGNATURE_VERSION   = 's3v4'          # required in most regions
+    AWS_S3_OBJECT_PARAMETERS   = {
+        'CacheControl': 'max-age=86400',
+    }
+
+    # ── Override default storage for uploaded media ──────────────────────────
+    # Individual fields use their own storage class (PassportPhotoStorage /
+    # IDDocumentStorage) defined in apps/competition/storage.py.  This default
+    # also catches any other FileField that doesn't specify a custom storage.
+    DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+
+    # When S3 is active, MEDIA_URL points at the bucket
+    MEDIA_URL = f'https://{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com/'
