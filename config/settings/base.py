@@ -1,15 +1,19 @@
 """
 Base Django settings for the Quran Competition Portal.
 """
+
 from pathlib import Path
 from datetime import timedelta
 from decouple import config, Csv
+import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 # ─── Security ────────────────────────────────────────────────────────────────
 SECRET_KEY = config('SECRET_KEY')
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=Csv())
+raw_origins = os.getenv("CSRF_TRUSTED_ORIGINS", "")
+CSRF_TRUSTED_ORIGINS = [url.strip() for url in raw_origins.split(",") if url.strip()]
 
 # ─── Applications ────────────────────────────────────────────────────────────
 INSTALLED_APPS = [
