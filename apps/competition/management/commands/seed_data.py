@@ -82,14 +82,14 @@ class Command(BaseCommand):
         self.stdout.write(self.style.MIGRATE_HEADING('Seeding competition settings...'))
         settings = CompetitionSettings.load()
         settings.about_en = (
-            "The Quran Competition 2025 is a prestigious annual event organised by the "
+            "The Quran Competition 2026 is a prestigious annual event organised by the "
             "Religious Attaché of the Saudi Embassy in Kenya. Open to Muslim youth across "
             "Kenya, the competition celebrates Quran memorisation (Hifz) and exemplary "
             "recitation (Tajweed). Trusted partners include the Ministry of Foreign Affairs, "
             "SUPKEM, and Jamia Mosque Nairobi."
         )
         settings.about_ar = (
-            "مسابقة القرآن الكريم ٢٠٢٥ حدث سنوي مرموق تنظمه الملحقية الدينية للسفارة "
+            "مسابقة القرآن الكريم ٢٠٢٦ حدث سنوي مرموق تنظمه الملحقية الدينية للسفارة "
             "السعودية في كينيا. مفتوحة للشباب المسلم في جميع أنحاء كينيا، وتحتفي المسابقة "
             "بحفظ القرآن الكريم وحسن تلاوته. من الشركاء الموثوقين: وزارة الخارجية، "
             "والمجلس الأعلى للمسلمين (سوبكيم)، ومسجد جامعة نيروبي."
