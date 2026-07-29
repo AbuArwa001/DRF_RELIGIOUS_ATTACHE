@@ -41,15 +41,18 @@ class RegistrationCreateSerializer(serializers.ModelSerializer):
     Public serializer used when a candidate submits their registration.
     Handles multipart/form-data including file uploads.
     """
-    id_document = serializers.FileField(required=True)
+    id_document    = serializers.FileField(required=True)
     passport_photo = serializers.ImageField(required=True)
 
     class Meta:
-        model = Registration
+        model  = Registration
         fields = [
-            'id', 'full_name', 'date_of_birth', 'category',
-            'nominating_institution', 'phone_number', 'email',
-            'id_document', 'passport_photo', 'submitted_at',
+            'id', 'full_name', 'date_of_birth',
+            'nationality', 'national_id_number', 'current_residence', 'county',
+            'category', 'nominating_institution',
+            'phone_number', 'alternative_phone', 'email',
+            'id_document', 'passport_photo',
+            'submitted_at',
         ]
         read_only_fields = ['id', 'submitted_at']
 
@@ -62,7 +65,7 @@ class RegistrationCreateSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
-        dob = attrs.get('date_of_birth')
+        dob      = attrs.get('date_of_birth')
         category = attrs.get('category')
         if dob and category:
             validate_age_for_category(dob, category)
@@ -72,17 +75,18 @@ class RegistrationCreateSerializer(serializers.ModelSerializer):
 class RegistrationAdminSerializer(serializers.ModelSerializer):
     """
     Admin-only serializer for reviewing and updating registrations.
-    Includes status, notes, and computed age.
+    Includes all personal details, status, notes, and computed age.
     """
-    age = serializers.SerializerMethodField()
+    age           = serializers.SerializerMethodField()
     category_name = serializers.SerializerMethodField()
 
     class Meta:
-        model = Registration
+        model  = Registration
         fields = [
             'id', 'full_name', 'date_of_birth', 'age',
+            'nationality', 'national_id_number', 'current_residence', 'county',
             'category', 'category_name',
-            'nominating_institution', 'phone_number', 'email',
+            'nominating_institution', 'phone_number', 'alternative_phone', 'email',
             'id_document', 'passport_photo',
             'status', 'reviewer_notes',
             'submitted_at', 'updated_at',
@@ -93,4 +97,4 @@ class RegistrationAdminSerializer(serializers.ModelSerializer):
         return obj.age
 
     def get_category_name(self, obj):
-        return obj.category.name_en
+        return getattr(obj.category, 'name_en', None)

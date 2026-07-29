@@ -1,18 +1,21 @@
 """
 Custom S3 storage backends for competition document uploads.
 
-Files are stored under the registrant's name folder inside the S3 bucket:
-  religionattche/<registrant_name>/passport.<ext>
-  religionattche/<registrant_name>/identification.<ext>
+Files are stored in the bucket under:
+  <firstname_abbr>_<lastname>_<national_id>/passport/<filename>.<ext>
+  <firstname_abbr>_<lastname>_<national_id>/id/<filename>.<ext>
 
-The <registrant_name> is derived from the Registration.full_name field,
-slugified so it is safe to use as an S3 key (no spaces or special characters).
+Example:
+  J_Doe_32145678/passport/passport.jpg
+  J_Doe_32145678/id/id.pdf
+
+The folder key is derived from Registration.full_name + Registration.national_id_number.
 """
 import os
 import re
 from django.conf import settings
 
-# Only import storages when USE_S3 is enabled; this keeps local dev working
+# Only import storages when USE_S3 is enabled; keeps local dev working
 # without boto3 installed.
 if getattr(settings, 'USE_S3', False):
     from storages.backends.s3boto3 import S3Boto3Storage
@@ -22,41 +25,72 @@ else:
     _S3Base = FileSystemStorage
 
 
-def _slugify_name(name: str) -> str:
+def _make_folder_key(full_name: str, national_id: str) -> str:
     """
-    Convert a full name into a safe folder name.
-    e.g. "John Doe" → "john_doe"
-         "أحمد علي"  → "احمد_علي"  (arabic preserved, spaces → underscores)
+    Build the registrant folder name from full name + ID number.
+
+    Format: <FirstInitial>_<Lastname>_<NationalID>
+    e.g.   "John Michael Doe", "32145678"  →  "J_Doe_32145678"
+           "Ahmed Ali Hassan", "A12345"    →  "A_Hassan_A12345"
+
+    Rules:
+    - Split name on whitespace → take first letter of first part as abbreviation
+    - Last part becomes the last-name segment
+    - national_id is appended as-is after stripping non-alphanumeric chars
     """
-    # Strip leading/trailing whitespace
-    name = name.strip()
-    # Replace any sequence of whitespace / slashes with underscore
-    name = re.sub(r'[\s/\\]+', '_', name)
-    # Remove characters that are problematic in S3 keys (keep letters, digits, -, _, .)
-    name = re.sub(r'[^\w.\-]', '', name, flags=re.UNICODE)
-    return name or 'unknown'
+    name = full_name.strip()
+    parts = name.split()
+
+    if len(parts) >= 2:
+        first_initial = parts[0][0].upper()
+        last_name     = parts[-1]
+    elif len(parts) == 1:
+        first_initial = parts[0][0].upper()
+        last_name     = parts[0]
+    else:
+        first_initial = 'X'
+        last_name     = 'unknown'
+
+    # Sanitise last_name: keep letters, digits, hyphens
+    last_name = re.sub(r'[^\w\-]', '', last_name, flags=re.UNICODE) or 'unknown'
+
+    # Sanitise national_id: keep letters and digits only
+    clean_id = re.sub(r'[^\w]', '', national_id, flags=re.UNICODE) or 'noid'
+
+    return f"{first_initial}_{last_name}_{clean_id}"
 
 
 # ── Upload-to path helpers ────────────────────────────────────────────────────
 
 def passport_photo_upload_path(instance, filename: str) -> str:
     """
-    Returns: <registrant_name>/passport.<original_ext>
-    e.g.    john_doe/passport.jpg
+    Returns:  <FirstInitial>_<Lastname>_<ID>/passport/<original_filename>
+    Example:  J_Doe_32145678/passport/passport.jpg
     """
-    ext = os.path.splitext(filename)[1].lower() or '.jpg'
-    folder = _slugify_name(instance.full_name)
-    return f"{folder}/passport{ext}"
+    ext    = os.path.splitext(filename)[1].lower() or '.jpg'
+    folder = _make_folder_key(
+        instance.full_name,
+        getattr(instance, 'national_id_number', '') or '',
+    )
+    original_name = os.path.splitext(os.path.basename(filename))[0]
+    # Sanitise original filename
+    safe_name = re.sub(r'[^\w\-.]', '_', original_name)
+    return f"{folder}/passport/{safe_name}{ext}"
 
 
 def id_document_upload_path(instance, filename: str) -> str:
     """
-    Returns: <registrant_name>/identification.<original_ext>
-    e.g.    john_doe/identification.pdf
+    Returns:  <FirstInitial>_<Lastname>_<ID>/id/<original_filename>
+    Example:  J_Doe_32145678/id/national_id.pdf
     """
-    ext = os.path.splitext(filename)[1].lower() or '.pdf'
-    folder = _slugify_name(instance.full_name)
-    return f"{folder}/identification{ext}"
+    ext    = os.path.splitext(filename)[1].lower() or '.pdf'
+    folder = _make_folder_key(
+        instance.full_name,
+        getattr(instance, 'national_id_number', '') or '',
+    )
+    original_name = os.path.splitext(os.path.basename(filename))[0]
+    safe_name = re.sub(r'[^\w\-.]', '_', original_name)
+    return f"{folder}/id/{safe_name}{ext}"
 
 
 # ── Storage classes ───────────────────────────────────────────────────────────
@@ -64,23 +98,22 @@ def id_document_upload_path(instance, filename: str) -> str:
 class PassportPhotoStorage(_S3Base):
     """
     S3 storage for passport photos.
-    Enforces public-read ACL so photos can be previewed from the admin panel.
+    Private ACL — access via pre-signed URLs only.
     Falls back to FileSystemStorage in development (USE_S3=False).
     """
     if getattr(settings, 'USE_S3', False):
-        # These kwargs are forwarded to S3Boto3Storage
-        default_acl = 'private'
-        file_overwrite = True            # always replace old photo on re-upload
-        custom_domain = None             # use presigned URLs, not public CDN
+        default_acl    = 'private'
+        file_overwrite = True      # replace on re-upload (same key)
+        custom_domain  = None      # use presigned URLs, not public CDN
 
 
 class IDDocumentStorage(_S3Base):
     """
     S3 storage for ID documents (National ID, Birth Certificate, Passport copy).
-    Private ACL — access only via pre-signed URLs generated by the admin.
+    Private ACL — access only via pre-signed URLs generated by the admin panel.
     Falls back to FileSystemStorage in development (USE_S3=False).
     """
     if getattr(settings, 'USE_S3', False):
-        default_acl = 'private'
+        default_acl    = 'private'
         file_overwrite = True
-        custom_domain = None
+        custom_domain  = None

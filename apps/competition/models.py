@@ -40,21 +40,34 @@ class Registration(models.Model):
         APPROVED = 'approved', _('Approved')
         REJECTED = 'rejected', _('Rejected')
 
-    full_name = models.CharField(_('Full name'), max_length=255)
-    date_of_birth = models.DateField(_('Date of birth'))
+    # ── Personal details ────────────────────────────────────────────────────
+    full_name           = models.CharField(_('Full name'), max_length=255)
+    date_of_birth       = models.DateField(_('Date of birth'))
+    nationality         = models.CharField(_('Nationality / Residency'), max_length=50, blank=True)
+    national_id_number  = models.CharField(_('National ID / Passport number'), max_length=100, blank=True)
+    current_residence   = models.CharField(_('Current place of residence'), max_length=255, blank=True)
+    county              = models.CharField(_('County (for preliminary)'), max_length=100, blank=True)
+
+    # ── Institution & contact ────────────────────────────────────────────────
+    nominating_institution = models.CharField(
+        _('Nominating institution / school'), max_length=255
+    )
+    phone_number       = models.CharField(_('Phone number'), max_length=30, blank=True)
+    alternative_phone  = models.CharField(_('Alternative phone number'), max_length=30, blank=True)
+    email              = models.EmailField(_('Email address'), blank=True)
+
+    # ── Competition category ─────────────────────────────────────────────────
     category = models.ForeignKey(
         Category,
         on_delete=models.PROTECT,
         related_name='registrations',
         verbose_name=_('Category'),
+        null=True, blank=True,
     )
-    nominating_institution = models.CharField(
-        _('Nominating institution / school'), max_length=255
-    )
-    phone_number = models.CharField(_('Phone number'), max_length=30, blank=True)
-    email = models.EmailField(_('Email address'), blank=True)
 
-    # File uploads — stored in AWS S3 under: religionattche/<registrant_name>/
+    # ── File uploads — stored in AWS S3 ─────────────────────────────────────
+    # Path: <FirstInitial>_<Lastname>_<NationalID>/passport/<filename>
+    # Path: <FirstInitial>_<Lastname>_<NationalID>/id/<filename>
     id_document = models.FileField(
         _('ID document (National ID / Birth Cert / Passport)'),
         upload_to=id_document_upload_path,
@@ -66,30 +79,30 @@ class Registration(models.Model):
         storage=PassportPhotoStorage(),
     )
 
-    # Review fields
+    # ── Review fields ────────────────────────────────────────────────────────
     status = models.CharField(
         _('Status'),
         max_length=20,
         choices=Status.choices,
         default=Status.PENDING,
     )
-    reviewer_notes = models.TextField(_('Reviewer notes'), blank=True)
-    submitted_at = models.DateTimeField(_('Submitted at'), auto_now_add=True)
-    updated_at = models.DateTimeField(_('Updated at'), auto_now=True)
+    reviewer_notes  = models.TextField(_('Reviewer notes'), blank=True)
+    submitted_at    = models.DateTimeField(_('Submitted at'), auto_now_add=True)
+    updated_at      = models.DateTimeField(_('Updated at'), auto_now=True)
 
     class Meta:
-        verbose_name = _('Registration')
+        verbose_name        = _('Registration')
         verbose_name_plural = _('Registrations')
-        ordering = ['-submitted_at']
+        ordering            = ['-submitted_at']
 
     def __str__(self):
-        return f"{self.full_name} — {self.category.name_en} ({self.status})"
+        return f"{self.full_name} — {getattr(self.category, 'name_en', 'N/A')} ({self.status})"
 
     @property
     def age(self):
         from datetime import date
         today = date.today()
-        dob = self.date_of_birth
+        dob   = self.date_of_birth
         return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
 
 
