@@ -5,6 +5,7 @@ from rest_framework import viewsets, mixins, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.conf import settings as django_settings
 
 from .models import Category, Registration, CompetitionSettings
 from .serializers import (
@@ -31,15 +32,20 @@ class RegistrationViewSet(
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,       # ← DELETE support
     mixins.ListModelMixin,
     viewsets.GenericViewSet,
 ):
     """
-    POST   /api/v1/registrations/       — public: submit a registration (multipart)
-    GET    /api/v1/registrations/       — admin only: list all registrations
-    GET    /api/v1/registrations/{id}/  — admin only: retrieve one registration
-    PUT    /api/v1/registrations/{id}/  — admin only: full update (status, notes)
-    PATCH  /api/v1/registrations/{id}/  — admin only: partial update
+    POST   /api/v1/registrations/              — public: submit registration (multipart)
+    GET    /api/v1/registrations/              — admin: list all
+    GET    /api/v1/registrations/{id}/         — admin: retrieve one
+    PUT    /api/v1/registrations/{id}/         — admin: full update
+    PATCH  /api/v1/registrations/{id}/         — admin: partial update
+    DELETE /api/v1/registrations/{id}/         — admin: delete entry
+    PATCH  /api/v1/registrations/{id}/review/  — admin: update status + notes
+    GET    /api/v1/registrations/{id}/photo_url/ — admin: get presigned S3 URL for passport photo
+    GET    /api/v1/registrations/{id}/doc_url/   — admin: get presigned S3 URL for ID document
     """
     queryset = Registration.objects.select_related('category').all()
 
@@ -62,6 +68,24 @@ class RegistrationViewSet(
             status=status.HTTP_201_CREATED,
         )
 
+    def update(self, request, *args, **kwargs):
+        """Full update — admin can edit all editable fields."""
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = RegistrationAdminSerializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def destroy(self, request, *args, **kwargs):
+        """Delete a registration entry."""
+        instance = self.get_object()
+        instance.delete()
+        return Response(
+            {'detail': 'Registration deleted successfully.'},
+            status=status.HTTP_204_NO_CONTENT,
+        )
+
     @action(detail=True, methods=['patch'], permission_classes=[IsAdminUser])
     def review(self, request, pk=None):
         """
@@ -75,6 +99,78 @@ class RegistrationViewSet(
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+    @action(detail=True, methods=['get'], permission_classes=[IsAdminUser], url_path='photo_url')
+    def photo_url(self, request, pk=None):
+        """
+        GET /api/v1/registrations/{id}/photo_url/
+        Returns a short-lived (5-minute) presigned S3 URL for the passport photo.
+        Falls back to the stored URL when S3 is disabled.
+        """
+        registration = self.get_object()
+        if not registration.passport_photo:
+            return Response({'url': None})
+
+        if getattr(django_settings, 'USE_S3', False):
+            try:
+                import boto3
+                s3 = boto3.client(
+                    's3',
+                    aws_access_key_id=django_settings.AWS_ACCESS_KEY_ID,
+                    aws_secret_access_key=django_settings.AWS_SECRET_ACCESS_KEY,
+                    region_name=django_settings.AWS_S3_REGION_NAME,
+                )
+                url = s3.generate_presigned_url(
+                    'get_object',
+                    Params={
+                        'Bucket': django_settings.AWS_STORAGE_BUCKET_NAME,
+                        'Key':    registration.passport_photo.name,
+                    },
+                    ExpiresIn=300,   # 5 minutes
+                )
+                return Response({'url': url})
+            except Exception as e:
+                return Response({'url': None, 'error': str(e)}, status=500)
+
+        # Local dev: return the relative media URL
+        request_obj = request._request
+        url = request_obj.build_absolute_uri(registration.passport_photo.url)
+        return Response({'url': url})
+
+    @action(detail=True, methods=['get'], permission_classes=[IsAdminUser], url_path='doc_url')
+    def doc_url(self, request, pk=None):
+        """
+        GET /api/v1/registrations/{id}/doc_url/
+        Returns a short-lived (5-minute) presigned S3 URL for the ID document.
+        """
+        registration = self.get_object()
+        if not registration.id_document:
+            return Response({'url': None})
+
+        if getattr(django_settings, 'USE_S3', False):
+            try:
+                import boto3
+                s3 = boto3.client(
+                    's3',
+                    aws_access_key_id=django_settings.AWS_ACCESS_KEY_ID,
+                    aws_secret_access_key=django_settings.AWS_SECRET_ACCESS_KEY,
+                    region_name=django_settings.AWS_S3_REGION_NAME,
+                )
+                url = s3.generate_presigned_url(
+                    'get_object',
+                    Params={
+                        'Bucket': django_settings.AWS_STORAGE_BUCKET_NAME,
+                        'Key':    registration.id_document.name,
+                    },
+                    ExpiresIn=300,
+                )
+                return Response({'url': url})
+            except Exception as e:
+                return Response({'url': None, 'error': str(e)}, status=500)
+
+        request_obj = request._request
+        url = request_obj.build_absolute_uri(registration.id_document.url)
+        return Response({'url': url})
 
 
 class CompetitionInfoView(APIView):
