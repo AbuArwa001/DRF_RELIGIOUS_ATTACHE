@@ -111,8 +111,10 @@ class CompetitionSettings(models.Model):
 
     registration_open = models.DateField(_('Registration opens'))
     registration_close = models.DateField(_('Registration closes'))
-    preliminaries_date = models.DateField(_('Preliminaries date'))
-    finals_date = models.DateField(_('Finals date'))
+    preliminaries_date = models.DateField(_('Preliminaries start date'))
+    preliminaries_end_date = models.DateField(_('Preliminaries end date'), null=True, blank=True)
+    finals_date = models.DateField(_('Finals start date'))
+    finals_end_date = models.DateField(_('Finals end date'), null=True, blank=True)
     venue_en = models.CharField(_('Venue (English)'), max_length=255, blank=True)
     venue_ar = models.CharField(_('Venue (Arabic)'), max_length=255, blank=True)
     about_en = models.TextField(_('About (English)'), blank=True)
@@ -133,10 +135,12 @@ class CompetitionSettings(models.Model):
     @classmethod
     def load(cls):
         obj, _ = cls.objects.get_or_create(pk=1, defaults={
-            'registration_open': '2026-01-01',
-            'registration_close': '2026-03-31',
-            'preliminaries_date': '2026-04-15',
-            'finals_date': '2026-05-30',
+            'registration_open': '2026-08-07',
+            'registration_close': '2026-08-31',
+            'preliminaries_date': '2026-09-06',
+            'preliminaries_end_date': '2026-09-07',
+            'finals_date': '2026-12-04',
+            'finals_end_date': '2026-12-06',
             'venue_en': 'Nairobi, Kenya',
             'venue_ar': 'نيروبي، كينيا',
         })

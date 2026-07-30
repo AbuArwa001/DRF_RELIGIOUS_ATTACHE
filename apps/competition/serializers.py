@@ -30,7 +30,8 @@ class CompetitionInfoSerializer(serializers.ModelSerializer):
         model = CompetitionSettings
         fields = [
             'registration_open', 'registration_close',
-            'preliminaries_date', 'finals_date',
+            'preliminaries_date', 'preliminaries_end_date',
+            'finals_date', 'finals_end_date',
             'venue_en', 'venue_ar', 'about_en', 'about_ar',
         ]
         read_only_fields = fields
@@ -46,7 +47,8 @@ class CompetitionInfoAdminSerializer(serializers.ModelSerializer):
         model = CompetitionSettings
         fields = [
             'registration_open', 'registration_close',
-            'preliminaries_date', 'finals_date',
+            'preliminaries_date', 'preliminaries_end_date',
+            'finals_date', 'finals_end_date',
             'venue_en', 'venue_ar', 'about_en', 'about_ar',
         ]
 
