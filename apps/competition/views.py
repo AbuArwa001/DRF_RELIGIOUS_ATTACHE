@@ -12,6 +12,7 @@ from .models import Category, Registration, CompetitionSettings
 from .serializers import (
     CategorySerializer,
     CompetitionInfoSerializer,
+    CompetitionInfoAdminSerializer,
     RegistrationCreateSerializer,
     RegistrationAdminSerializer,
 )
@@ -181,13 +182,34 @@ class RegistrationViewSet(
 
 class CompetitionInfoView(APIView):
     """
-    GET /api/v1/info/
-    Returns competition settings (dates, venue, about text).
-    Public endpoint.
+    GET    /api/v1/info/  — public: returns competition dates, venue, about text.
+    PUT    /api/v1/info/  — admin: full update of all settings fields.
+    PATCH  /api/v1/info/  — admin: partial update (only supplied fields are changed).
     """
-    permission_classes = []
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return []           # public read
+        return [IsAdminUser()]  # all writes require admin JWT
 
     def get(self, request):
+        """Return the current competition settings (public)."""
         settings = CompetitionSettings.load()
         serializer = CompetitionInfoSerializer(settings)
+        return Response(serializer.data)
+
+    def put(self, request):
+        """Full update — all fields must be supplied."""
+        settings = CompetitionSettings.load()
+        serializer = CompetitionInfoAdminSerializer(settings, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def patch(self, request):
+        """Partial update — only the supplied fields are changed."""
+        settings = CompetitionSettings.load()
+        serializer = CompetitionInfoAdminSerializer(settings, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
         return Response(serializer.data)

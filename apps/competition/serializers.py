@@ -24,7 +24,7 @@ class CategorySerializer(serializers.ModelSerializer):
 
 
 class CompetitionInfoSerializer(serializers.ModelSerializer):
-    """Public serializer for competition dates and venue."""
+    """Public read-only serializer for competition dates and venue."""
 
     class Meta:
         model = CompetitionSettings
@@ -34,6 +34,21 @@ class CompetitionInfoSerializer(serializers.ModelSerializer):
             'venue_en', 'venue_ar', 'about_en', 'about_ar',
         ]
         read_only_fields = fields
+
+
+class CompetitionInfoAdminSerializer(serializers.ModelSerializer):
+    """
+    Admin-only writable serializer for CompetitionSettings.
+    All fields are editable; supports partial updates (PATCH).
+    """
+
+    class Meta:
+        model = CompetitionSettings
+        fields = [
+            'registration_open', 'registration_close',
+            'preliminaries_date', 'finals_date',
+            'venue_en', 'venue_ar', 'about_en', 'about_ar',
+        ]
 
 
 class RegistrationCreateSerializer(serializers.ModelSerializer):
