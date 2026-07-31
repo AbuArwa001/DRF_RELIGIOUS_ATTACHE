@@ -120,6 +120,7 @@ class CompetitionSettings(models.Model):
     about_en = models.TextField(_('About (English)'), blank=True)
     about_ar = models.TextField(_('About (Arabic)'), blank=True)
     county_registration_limit = models.PositiveIntegerField(_('Per-county registration limit'), null=True, blank=True, help_text=_("Leave blank for no limit."))
+    category_registration_limit = models.PositiveIntegerField(_('Per-category registration limit'), null=True, blank=True, help_text=_("Maximum allowed registrants per memorisation category. Leave blank for no limit."))
 
     class Meta:
         verbose_name = _('Competition Settings')
