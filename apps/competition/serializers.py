@@ -33,6 +33,7 @@ class CompetitionInfoSerializer(serializers.ModelSerializer):
             'preliminaries_date', 'preliminaries_end_date',
             'finals_date', 'finals_end_date',
             'venue_en', 'venue_ar', 'about_en', 'about_ar',
+            'county_registration_limit',
         ]
         read_only_fields = fields
 
@@ -50,6 +51,7 @@ class CompetitionInfoAdminSerializer(serializers.ModelSerializer):
             'preliminaries_date', 'preliminaries_end_date',
             'finals_date', 'finals_end_date',
             'venue_en', 'venue_ar', 'about_en', 'about_ar',
+            'county_registration_limit',
         ]
 
 
@@ -86,6 +88,16 @@ class RegistrationCreateSerializer(serializers.ModelSerializer):
         category = attrs.get('category')
         if dob and category:
             validate_age_for_category(dob, category)
+        
+        county = attrs.get('county')
+        if county:
+            settings = CompetitionSettings.load()
+            if settings.county_registration_limit:
+                count = Registration.objects.filter(county=county).count()
+                if count >= settings.county_registration_limit:
+                    raise serializers.ValidationError({
+                        "county": _(f"Registration limit reached for {county} county.")
+                    })
         return attrs
 
 
