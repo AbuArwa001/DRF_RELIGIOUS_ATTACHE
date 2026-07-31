@@ -25,6 +25,7 @@ class CategorySerializer(serializers.ModelSerializer):
 
 class CompetitionInfoSerializer(serializers.ModelSerializer):
     """Public read-only serializer for competition dates and venue."""
+    county_stats = serializers.SerializerMethodField()
 
     class Meta:
         model = CompetitionSettings
@@ -33,9 +34,14 @@ class CompetitionInfoSerializer(serializers.ModelSerializer):
             'preliminaries_date', 'preliminaries_end_date',
             'finals_date', 'finals_end_date',
             'venue_en', 'venue_ar', 'about_en', 'about_ar',
-            'county_registration_limit',
+            'county_registration_limit', 'county_stats',
         ]
         read_only_fields = fields
+
+    def get_county_stats(self, obj):
+        from django.db.models import Count
+        qs = Registration.objects.values('county').annotate(count=Count('id'))
+        return {item['county']: item['count'] for item in qs if item['county']}
 
 
 class CompetitionInfoAdminSerializer(serializers.ModelSerializer):
@@ -43,6 +49,7 @@ class CompetitionInfoAdminSerializer(serializers.ModelSerializer):
     Admin-only writable serializer for CompetitionSettings.
     All fields are editable; supports partial updates (PATCH).
     """
+    county_stats = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = CompetitionSettings
@@ -51,8 +58,13 @@ class CompetitionInfoAdminSerializer(serializers.ModelSerializer):
             'preliminaries_date', 'preliminaries_end_date',
             'finals_date', 'finals_end_date',
             'venue_en', 'venue_ar', 'about_en', 'about_ar',
-            'county_registration_limit',
+            'county_registration_limit', 'county_stats'
         ]
+
+    def get_county_stats(self, obj):
+        from django.db.models import Count
+        qs = Registration.objects.values('county').annotate(count=Count('id'))
+        return {item['county']: item['count'] for item in qs if item['county']}
 
 
 class RegistrationCreateSerializer(serializers.ModelSerializer):
