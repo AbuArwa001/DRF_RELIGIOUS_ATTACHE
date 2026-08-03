@@ -12,6 +12,18 @@ def calculate_age(dob: date) -> int:
     return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
 
 
+def normalize_phone(phone_str: str) -> str:
+    """Normalize phone numbers to digits only, handling Kenyan local (07/01) & intl (+254) prefixes."""
+    if not phone_str:
+        return ''
+    digits = ''.join(c for c in phone_str if c.isdigit())
+    if digits.startswith('254') and len(digits) == 12:
+        return digits[3:]
+    if digits.startswith('0') and len(digits) == 10:
+        return digits[1:]
+    return digits
+
+
 def validate_age_for_category(dob: date, category) -> None:
     """
     Raise ValidationError if the candidate's age exceeds the category's max_age.

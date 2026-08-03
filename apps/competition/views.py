@@ -17,6 +17,7 @@ from .serializers import (
     RegistrationAdminSerializer,
 )
 from .permissions import IsAdminUser
+from .validators import normalize_phone
 
 
 class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
@@ -57,8 +58,8 @@ class RegistrationViewSet(
         return RegistrationAdminSerializer
 
     def get_permissions(self):
-        if self.action == 'create':
-            return []   # public registration submission
+        if self.action in ['create', 'check_duplicate']:
+            return []   # public registration submission and duplicate check
         return [IsAdminUser()]
 
     def create(self, request, *args, **kwargs):
@@ -101,6 +102,41 @@ class RegistrationViewSet(
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], permission_classes=[], url_path='check_duplicate')
+    def check_duplicate(self, request):
+        """
+        GET /api/v1/registrations/check_duplicate/?national_id=...&phone=...&email=...
+        Public endpoint to check if a participant has already registered.
+        """
+        nat_id = (request.query_params.get('national_id') or '').strip()
+        phone = (request.query_params.get('phone') or '').strip()
+        email = (request.query_params.get('email') or '').strip()
+
+        active_regs = Registration.objects.exclude(status=Registration.Status.REJECTED)
+
+        nat_id_dup = bool(nat_id and active_regs.filter(national_id_number__iexact=nat_id).exists())
+
+        phone_dup = False
+        if phone:
+            norm_phone = normalize_phone(phone)
+            if norm_phone:
+                existing_phones = active_regs.values_list('phone_number', flat=True)
+                for ep in existing_phones:
+                    if ep and normalize_phone(ep) == norm_phone:
+                        phone_dup = True
+                        break
+
+        email_dup = bool(email and active_regs.filter(email__iexact=email).exists())
+
+        return Response({
+            'is_duplicate': nat_id_dup or phone_dup or email_dup,
+            'fields': {
+                'national_id': nat_id_dup,
+                'phone': phone_dup,
+                'email': email_dup,
+            }
+        })
 
     # ── S3 helper ──────────────────────────────────────────────────────────
     @staticmethod
