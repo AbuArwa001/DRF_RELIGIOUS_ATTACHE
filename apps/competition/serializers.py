@@ -27,6 +27,7 @@ class CompetitionInfoSerializer(serializers.ModelSerializer):
     """Public read-only serializer for competition dates and venue."""
     county_stats = serializers.SerializerMethodField()
     category_stats = serializers.SerializerMethodField()
+    category_county_stats = serializers.SerializerMethodField()
 
     class Meta:
         model = CompetitionSettings
@@ -37,6 +38,7 @@ class CompetitionInfoSerializer(serializers.ModelSerializer):
             'venue_en', 'venue_ar', 'about_en', 'about_ar',
             'county_registration_limit', 'county_stats',
             'category_registration_limit', 'category_stats',
+            'category_county_stats',
         ]
         read_only_fields = fields
 
@@ -50,6 +52,19 @@ class CompetitionInfoSerializer(serializers.ModelSerializer):
         qs = Registration.objects.values('category').annotate(count=Count('id'))
         return {item['category']: item['count'] for item in qs if item['category'] is not None}
 
+    def get_category_county_stats(self, obj):
+        from django.db.models import Count
+        qs = Registration.objects.values('category', 'county').annotate(count=Count('id'))
+        stats = {}
+        for item in qs:
+            cat_id = item['category']
+            county = item['county']
+            if cat_id is not None and county:
+                if cat_id not in stats:
+                    stats[cat_id] = {}
+                stats[cat_id][county] = item['count']
+        return stats
+
 
 class CompetitionInfoAdminSerializer(serializers.ModelSerializer):
     """
@@ -58,6 +73,7 @@ class CompetitionInfoAdminSerializer(serializers.ModelSerializer):
     """
     county_stats = serializers.SerializerMethodField(read_only=True)
     category_stats = serializers.SerializerMethodField(read_only=True)
+    category_county_stats = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = CompetitionSettings
@@ -68,6 +84,7 @@ class CompetitionInfoAdminSerializer(serializers.ModelSerializer):
             'venue_en', 'venue_ar', 'about_en', 'about_ar',
             'county_registration_limit', 'county_stats',
             'category_registration_limit', 'category_stats',
+            'category_county_stats',
         ]
 
     def get_county_stats(self, obj):
@@ -79,6 +96,19 @@ class CompetitionInfoAdminSerializer(serializers.ModelSerializer):
         from django.db.models import Count
         qs = Registration.objects.values('category').annotate(count=Count('id'))
         return {item['category']: item['count'] for item in qs if item['category'] is not None}
+
+    def get_category_county_stats(self, obj):
+        from django.db.models import Count
+        qs = Registration.objects.values('category', 'county').annotate(count=Count('id'))
+        stats = {}
+        for item in qs:
+            cat_id = item['category']
+            county = item['county']
+            if cat_id is not None and county:
+                if cat_id not in stats:
+                    stats[cat_id] = {}
+                stats[cat_id][county] = item['count']
+        return stats
 
 
 class RegistrationCreateSerializer(serializers.ModelSerializer):
@@ -115,14 +145,16 @@ class RegistrationCreateSerializer(serializers.ModelSerializer):
         if dob and category:
             validate_age_for_category(dob, category)
         
-        if category:
+        county = attrs.get('county')
+
+        if category and county:
             settings = CompetitionSettings.load()
-            if settings.category_registration_limit:
-                count = Registration.objects.filter(category=category).count()
-                if count >= settings.category_registration_limit:
-                    raise serializers.ValidationError({
-                        "category": _(f"Registration limit of {settings.category_registration_limit} reached for this category ({category.name_en}).")
-                    })
+            limit = 10  # Enforced 10 spots per category per county as requested
+            count = Registration.objects.filter(category=category, county=county).count()
+            if count >= limit:
+                raise serializers.ValidationError({
+                    "category": _(f"Registration limit of {limit} reached for {category.name_en} in {county} county.")
+                })
 
         county = attrs.get('county')
         if county:
