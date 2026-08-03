@@ -147,7 +147,7 @@ class RegistrationCreateSerializer(serializers.ModelSerializer):
             validate_age_for_category(dob, category)
 
         # ── Double registration prevention ──────────────────────────────────
-        active_regs = Registration.objects.exclude(status=Registration.Status.REJECTED)
+        active_regs = Registration.objects.all()
 
         nat_id = (attrs.get('national_id_number') or '').strip()
         if nat_id:

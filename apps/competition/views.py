@@ -113,7 +113,7 @@ class RegistrationViewSet(
         phone = (request.query_params.get('phone') or '').strip()
         email = (request.query_params.get('email') or '').strip()
 
-        active_regs = Registration.objects.exclude(status=Registration.Status.REJECTED)
+        active_regs = Registration.objects.all()
 
         nat_id_dup = bool(nat_id and active_regs.filter(national_id_number__iexact=nat_id).exists())
 
