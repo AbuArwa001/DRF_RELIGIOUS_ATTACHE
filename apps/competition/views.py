@@ -1,7 +1,7 @@
 """
 DRF ViewSets for the competition app.
 """
-from rest_framework import viewsets, mixins, status
+from rest_framework import viewsets, mixins, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -42,7 +42,7 @@ class RegistrationViewSet(
 ):
     """
     POST   /api/v1/registrations/              — public: submit registration (multipart)
-    GET    /api/v1/registrations/              — admin: list all
+    GET    /api/v1/registrations/              — admin: list all (supports ?search= query)
     GET    /api/v1/registrations/{id}/         — admin: retrieve one
     PUT    /api/v1/registrations/{id}/         — admin: full update
     PATCH  /api/v1/registrations/{id}/         — admin: partial update
@@ -52,6 +52,8 @@ class RegistrationViewSet(
     GET    /api/v1/registrations/{id}/doc_url/   — admin: get presigned S3 URL for ID document
     """
     queryset = Registration.objects.select_related('category').all()
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['full_name', 'nominating_institution', 'phone_number', 'email', 'national_id_number']
 
     def get_serializer_class(self):
         if self.action == 'create':
