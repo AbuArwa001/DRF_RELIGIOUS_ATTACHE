@@ -18,6 +18,7 @@ from .serializers import (
 )
 from .permissions import IsAdminUser
 from .validators import normalize_phone
+from .emails import send_status_update_email
 
 
 class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
@@ -75,9 +76,13 @@ class RegistrationViewSet(
         """Full update — admin can edit all editable fields."""
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
+        old_status = instance.status
+        old_notes = instance.reviewer_notes
         serializer = RegistrationAdminSerializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        updated_instance = serializer.save()
+        if updated_instance.status in ['rejected', 'approved'] and (old_status != updated_instance.status or old_notes != updated_instance.reviewer_notes):
+            send_status_update_email(updated_instance)
         return Response(serializer.data)
 
     def destroy(self, request, *args, **kwargs):
@@ -96,11 +101,15 @@ class RegistrationViewSet(
         Allows updating status and reviewer_notes only.
         """
         registration = self.get_object()
+        old_status = registration.status
+        old_notes = registration.reviewer_notes
         allowed_fields = {'status', 'reviewer_notes'}
         data = {k: v for k, v in request.data.items() if k in allowed_fields}
         serializer = RegistrationAdminSerializer(registration, data=data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        updated_instance = serializer.save()
+        if updated_instance.status in ['rejected', 'approved'] and (old_status != updated_instance.status or old_notes != updated_instance.reviewer_notes):
+            send_status_update_email(updated_instance)
         return Response(serializer.data)
 
     @action(detail=False, methods=['get'], permission_classes=[], url_path='check_duplicate')
