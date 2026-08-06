@@ -90,6 +90,19 @@ class RegistrationAdmin(admin.ModelAdmin):
         return '—'
     passport_photo_preview.short_description = _('Preview')
 
+    def save_model(self, request, obj, form, change):
+        old_status = None
+        old_notes = None
+        if change and obj.pk:
+            old_obj = Registration.objects.filter(pk=obj.pk).values('status', 'reviewer_notes').first()
+            if old_obj:
+                old_status = old_obj['status']
+                old_notes = old_obj['reviewer_notes']
+        super().save_model(request, obj, form, change)
+        if obj.status in ['rejected', 'approved'] and (not change or old_status != obj.status or old_notes != obj.reviewer_notes):
+            from .emails import send_status_update_email
+            send_status_update_email(obj)
+
 
 @admin.register(CompetitionSettings)
 class CompetitionSettingsAdmin(admin.ModelAdmin):
