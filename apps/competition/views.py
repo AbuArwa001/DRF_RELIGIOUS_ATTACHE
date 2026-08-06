@@ -77,11 +77,10 @@ class RegistrationViewSet(
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
         old_status = instance.status
-        old_notes = instance.reviewer_notes
         serializer = RegistrationAdminSerializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         updated_instance = serializer.save()
-        if updated_instance.status in ['rejected', 'approved'] and (old_status != updated_instance.status or old_notes != updated_instance.reviewer_notes):
+        if updated_instance.status in ['rejected', 'approved'] and old_status != updated_instance.status:
             send_status_update_email(updated_instance)
         return Response(serializer.data)
 
@@ -102,13 +101,12 @@ class RegistrationViewSet(
         """
         registration = self.get_object()
         old_status = registration.status
-        old_notes = registration.reviewer_notes
         allowed_fields = {'status', 'reviewer_notes'}
         data = {k: v for k, v in request.data.items() if k in allowed_fields}
         serializer = RegistrationAdminSerializer(registration, data=data, partial=True)
         serializer.is_valid(raise_exception=True)
         updated_instance = serializer.save()
-        if updated_instance.status in ['rejected', 'approved'] and (old_status != updated_instance.status or old_notes != updated_instance.reviewer_notes):
+        if updated_instance.status in ['rejected', 'approved'] and old_status != updated_instance.status:
             send_status_update_email(updated_instance)
         return Response(serializer.data)
 

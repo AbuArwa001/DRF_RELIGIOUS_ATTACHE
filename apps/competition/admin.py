@@ -92,14 +92,12 @@ class RegistrationAdmin(admin.ModelAdmin):
 
     def save_model(self, request, obj, form, change):
         old_status = None
-        old_notes = None
         if change and obj.pk:
-            old_obj = Registration.objects.filter(pk=obj.pk).values('status', 'reviewer_notes').first()
+            old_obj = Registration.objects.filter(pk=obj.pk).values('status').first()
             if old_obj:
                 old_status = old_obj['status']
-                old_notes = old_obj['reviewer_notes']
         super().save_model(request, obj, form, change)
-        if obj.status in ['rejected', 'approved'] and (not change or old_status != obj.status or old_notes != obj.reviewer_notes):
+        if obj.status in ['rejected', 'approved'] and (not change or old_status != obj.status):
             from .emails import send_status_update_email
             send_status_update_email(obj)
 
