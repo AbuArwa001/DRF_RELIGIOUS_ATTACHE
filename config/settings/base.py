@@ -8,7 +8,9 @@ from decouple import config, Csv
 import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
-
+FILE_UPLOAD_HANDLERS = [
+    'django.core.files.uploadhandler.TemporaryFileUploadHandler',
+]
 # ─── Security ────────────────────────────────────────────────────────────────
 SECRET_KEY = config('SECRET_KEY')
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=Csv())
