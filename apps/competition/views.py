@@ -20,6 +20,15 @@ from .permissions import IsAdminUser
 from .validators import normalize_phone
 from .emails import send_status_update_email
 
+import io
+import zipfile
+from django.http import FileResponse
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+
 
 class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
     """
@@ -146,6 +155,232 @@ class RegistrationViewSet(
                 'email': email_dup,
             }
         })
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAdminUser], url_path='bulk_download_pdfs')
+    def bulk_download_pdfs(self, request):
+        """
+        POST /api/v1/registrations/bulk_download_pdfs/
+        Body: {"ids": [1, 2, 3]}
+        Generates a PDF for each selected registration and returns them in a ZIP archive.
+        """
+        ids = request.data.get('ids', [])
+        if not ids or not isinstance(ids, list):
+            return Response({'error': 'Please provide a list of registration IDs.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        registrations = Registration.objects.filter(id__in=ids).select_related('category')
+        if not registrations.exists():
+            return Response({'error': 'No registrations found for the provided IDs.'}, status=status.HTTP_404_NOT_FOUND)
+        
+        from pypdf import PdfWriter, PdfReader
+        from datetime import datetime
+        
+        zip_buffer = io.BytesIO()
+        
+        styles = getSampleStyleSheet()
+        normal_style = styles['Normal']
+        
+        G = colors.HexColor('#0E7A4A')
+        GD = colors.HexColor('#043823')
+        
+        section_title_style = ParagraphStyle(
+            'SectionTitle', parent=normal_style, fontName='Helvetica-Bold', fontSize=10, textColor=colors.black,
+            spaceAfter=8, spaceBefore=0, backColor=colors.HexColor('#F8FAFC'), borderPadding=(4, 4, 4, 4),
+        )
+        field_label_style = ParagraphStyle(
+            'FieldLabel', parent=normal_style, fontName='Helvetica-Bold', fontSize=7, textColor=colors.gray,
+        )
+        field_value_style = ParagraphStyle(
+            'FieldValue', parent=normal_style, fontName='Helvetica', fontSize=9, textColor=colors.black, spaceAfter=8,
+        )
+        
+        def create_field(label, value):
+            return [Paragraph(label.upper(), field_label_style), Paragraph(str(value) if value else "—", field_value_style)]
+
+        now_str = datetime.now().strftime('%d %b %Y, %H:%M').upper()
+        logo_path = '/home/khalfan/Desktop/ReligiousAttache/public/assets/Moi.jpg'
+
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            for reg in registrations:
+                pdf_buffer = io.BytesIO()
+                doc = SimpleDocTemplate(
+                    pdf_buffer, 
+                    pagesize=A4,
+                    rightMargin=inch*0.5, leftMargin=inch*0.5,
+                    topMargin=inch*0.5, bottomMargin=inch*0.5
+                )
+                elements = []
+                
+                # Header Table (Banner)
+                try:
+                    logo_img = RLImage(logo_path, width=0.8*inch, height=0.8*inch)
+                except:
+                    logo_img = Paragraph("LOGO", normal_style)
+                
+                cat_name = reg.category.name_en if reg.category else 'N/A'
+                sub_date = reg.submitted_at.strftime("%d %B %Y")
+                
+                header_text = f"""
+                <font color='#F0D97A' size=8><b>RELIGIOUS ATTACHÉ · SAUDI EMBASSY KENYA</b></font><br/>
+                <font color='white' size=16><b>{reg.full_name}</b></font><br/>
+                <font color='white' size=9>
+                <font color='#F0D97A'>ID:</font> REF-{reg.id:05d} &nbsp;&nbsp;&nbsp;&nbsp; 
+                <font color='#F0D97A'>Category:</font> {cat_name} &nbsp;&nbsp;&nbsp;&nbsp; 
+                Submitted: {sub_date}
+                </font>
+                """
+                header_p = Paragraph(header_text, ParagraphStyle('Header', fontName='Helvetica', leading=14))
+                
+                status_color = colors.HexColor('#D97706') if reg.status == 'pending' else colors.HexColor('#059669') if reg.status == 'approved' else colors.HexColor('#DC2626')
+                status_bg = colors.HexColor('#FEF3C7') if reg.status == 'pending' else colors.HexColor('#ECFDF5') if reg.status == 'approved' else colors.HexColor('#FEF2F2')
+                
+                status_p = Paragraph(f"<font color='{status_color.hexval()}'><b>{reg.status.upper()}</b></font>", ParagraphStyle('Status', fontName='Helvetica-Bold', fontSize=8, alignment=1))
+                status_table = Table([[status_p]], colWidths=[1*inch], rowHeights=[0.25*inch])
+                status_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0,0), (-1,-1), status_bg),
+                    ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ]))
+
+                header_table = Table([[logo_img, header_p, status_table]], colWidths=[1*inch, 5*inch, 1.2*inch])
+                header_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0,0), (-1,-1), GD),
+                    ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                    ('VALIGN', (2,0), (2,0), 'TOP'),
+                    ('TOPPADDING', (0,0), (-1,-1), 16),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 16),
+                    ('LEFTPADDING', (0,0), (-1,-1), 16),
+                    ('RIGHTPADDING', (0,0), (-1,-1), 16),
+                ]))
+                
+                elements.append(header_table)
+                elements.append(Spacer(1, 0.3*inch))
+                
+                # 2-Column Body Grid
+                left_elements = []
+                left_elements.append(Paragraph("👤 PERSONAL INFORMATION", section_title_style))
+                left_elements.append(Spacer(1, 0.1*inch))
+                
+                personal_data = [
+                    create_field("DATE OF BIRTH", reg.date_of_birth),
+                    create_field("AGE", f"{reg.age} years old"),
+                    create_field("NATIONALITY", reg.nationality),
+                    create_field("NATIONAL ID / PASSPORT", reg.national_id_number),
+                    create_field("CURRENT RESIDENCE", reg.current_residence),
+                    create_field("HOME COUNTY", reg.county),
+                ]
+                p_table_data = []
+                for i in range(0, len(personal_data), 2):
+                    row = [personal_data[i]]
+                    if i + 1 < len(personal_data): row.append(personal_data[i+1])
+                    else: row.append([])
+                    p_table_data.append(row)
+                
+                ptable = Table(p_table_data, colWidths=[2.3*inch, 2.3*inch])
+                ptable.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING', (0,0), (-1,-1), 0)]))
+                left_elements.append(ptable)
+                left_elements.append(Spacer(1, 0.2*inch))
+                
+                left_elements.append(Paragraph("📞 CONTACT & INSTITUTIONAL DATA", section_title_style))
+                left_elements.append(Spacer(1, 0.1*inch))
+                contact_data = [
+                    create_field("PRIMARY PHONE", reg.phone_number),
+                    create_field("ALTERNATIVE PHONE", reg.alternative_phone),
+                    create_field("EMAIL ADDRESS", reg.email),
+                    create_field("NOMINATING INSTITUTION", reg.nominating_institution),
+                ]
+                c_table_data = []
+                for i in range(0, len(contact_data), 2):
+                    row = [contact_data[i]]
+                    if i + 1 < len(contact_data): row.append(contact_data[i+1])
+                    else: row.append([])
+                    c_table_data.append(row)
+                
+                ctable = Table(c_table_data, colWidths=[2.3*inch, 2.3*inch])
+                ctable.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING', (0,0), (-1,-1), 0)]))
+                left_elements.append(ctable)
+                
+                right_elements = []
+                right_elements.append(Paragraph("APPLICANT PHOTO", section_title_style))
+                right_elements.append(Spacer(1, 0.1*inch))
+                if reg.passport_photo:
+                    try:
+                        img_file = reg.passport_photo.open('rb')
+                        img_data = io.BytesIO(img_file.read())
+                        img = RLImage(img_data, width=1.5*inch, height=1.8*inch, kind='proportional')
+                        img.hAlign = 'CENTER'
+                        right_elements.append(img)
+                        img_file.close()
+                    except Exception as e:
+                        right_elements.append(Paragraph(f"Could not load image: {e}", field_value_style))
+                else:
+                    right_elements.append(Paragraph("No photo attached", field_value_style))
+                
+                right_elements.append(Spacer(1, 0.2*inch))
+                right_elements.append(Paragraph("ATTACHED DOCUMENTS", section_title_style))
+                right_elements.append(Spacer(1, 0.1*inch))
+                doc_text = "📄 National ID / Document<br/><font color='gray' size=8>See attached pages for secure PDF/Image</font>" if reg.id_document else "No ID document attached"
+                right_elements.append(Paragraph(doc_text, normal_style))
+                
+                body_table = Table([[left_elements, right_elements]], colWidths=[4.7*inch, 2.5*inch])
+                body_table.setStyle(TableStyle([
+                    ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                    ('LEFTPADDING', (0,0), (-1,-1), 0),
+                    ('RIGHTPADDING', (0,0), (-1,-1), 0),
+                ]))
+                elements.append(body_table)
+                
+                elements.append(Spacer(1, 1*inch))
+                elements.append(Paragraph(f"<font color='gray' size=7><b>OFFICIAL QURAN COMPETITION 2026 REGISTRY</b> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; GENERATED: {now_str}</font>", ParagraphStyle('Footer', alignment=0)))
+                
+                doc.build(elements)
+                
+                # Merge ID document
+                reportlab_pdf_bytes = pdf_buffer.getvalue()
+                writer = PdfWriter()
+                
+                reader1 = PdfReader(io.BytesIO(reportlab_pdf_bytes))
+                for page in reader1.pages:
+                    writer.add_page(page)
+                
+                if reg.id_document:
+                    try:
+                        id_file = reg.id_document.open('rb')
+                        id_data = io.BytesIO(id_file.read())
+                        filename_lower = reg.id_document.name.lower()
+                        
+                        if filename_lower.endswith('.pdf'):
+                            id_reader = PdfReader(id_data)
+                            for page in id_reader.pages:
+                                writer.add_page(page)
+                        elif filename_lower.endswith(('.jpg', '.jpeg', '.png')):
+                            img_pdf_buffer = io.BytesIO()
+                            img_doc = SimpleDocTemplate(
+                                img_pdf_buffer, pagesize=A4, rightMargin=inch, leftMargin=inch, topMargin=inch, bottomMargin=inch
+                            )
+                            img_elements = []
+                            img_elements.append(Paragraph("ATTACHED IDENTIFICATION DOCUMENT", section_title_style))
+                            img_elements.append(Spacer(1, 0.5*inch))
+                            id_img = RLImage(id_data, width=6*inch, height=8*inch, kind='proportional')
+                            img_elements.append(id_img)
+                            img_doc.build(img_elements)
+                            
+                            id_reader = PdfReader(io.BytesIO(img_pdf_buffer.getvalue()))
+                            for page in id_reader.pages:
+                                writer.add_page(page)
+                        id_file.close()
+                    except Exception as e:
+                        print(f"Error appending ID document for reg {reg.id}: {e}")
+                
+                merged_pdf_buffer = io.BytesIO()
+                writer.write(merged_pdf_buffer)
+                merged_pdf_bytes = merged_pdf_buffer.getvalue()
+                
+                safe_name = "".join([c for c in reg.full_name if c.isalpha() or c.isdigit() or c==' ']).rstrip()
+                filename = f"Candidate_{reg.id}_{safe_name.replace(' ', '_')}.pdf"
+                zip_file.writestr(filename, merged_pdf_bytes)
+        
+        zip_buffer.seek(0)
+        return FileResponse(zip_buffer, as_attachment=True, filename='candidate-registrations.zip')
 
     # ── S3 helper ──────────────────────────────────────────────────────────
     @staticmethod
