@@ -117,6 +117,11 @@ class RegistrationCreateSerializer(serializers.ModelSerializer):
     Public serializer used when a candidate submits their registration.
     Handles multipart/form-data including file uploads.
     """
+    category       = serializers.PrimaryKeyRelatedField(
+        queryset=Category.objects.all(),
+        required=True,
+        error_messages={'required': _('Memorisation category is required.')}
+    )
     id_document    = serializers.FileField(required=True)
     passport_photo = serializers.ImageField(required=True)
 
