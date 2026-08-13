@@ -37,8 +37,8 @@ class DuplicateRegistrationTests(TestCase):
     def test_duplicate_phone_check_endpoint(self):
         res = self.client.get('/api/v1/registrations/check_duplicate/', {'phone': '+254 712-345-678'})
         self.assertEqual(res.status_code, 200)
-        self.assertTrue(res.data['is_duplicate'])
-        self.assertTrue(res.data['fields']['phone'])
+        self.assertFalse(res.data['is_duplicate'])
+        self.assertFalse(res.data['fields']['phone'])
 
     def test_duplicate_email_check_endpoint(self):
         res = self.client.get('/api/v1/registrations/check_duplicate/', {'email': 'AHMAD@example.com'})

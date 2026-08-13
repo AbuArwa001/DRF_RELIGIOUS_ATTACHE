@@ -134,24 +134,13 @@ class RegistrationViewSet(
         active_regs = Registration.objects.exclude(status=Registration.Status.REJECTED)
 
         nat_id_dup = bool(nat_id and active_regs.filter(national_id_number__iexact=nat_id).exists())
-
-        phone_dup = False
-        if phone:
-            norm_phone = normalize_phone(phone)
-            if norm_phone:
-                existing_phones = active_regs.values_list('phone_number', flat=True)
-                for ep in existing_phones:
-                    if ep and normalize_phone(ep) == norm_phone:
-                        phone_dup = True
-                        break
-
         email_dup = bool(email and active_regs.filter(email__iexact=email).exists())
 
         return Response({
-            'is_duplicate': nat_id_dup or phone_dup or email_dup,
+            'is_duplicate': nat_id_dup or email_dup,
             'fields': {
                 'national_id': nat_id_dup,
-                'phone': phone_dup,
+                'phone': False,
                 'email': email_dup,
             }
         })

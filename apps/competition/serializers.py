@@ -156,17 +156,6 @@ class RegistrationCreateSerializer(serializers.ModelSerializer):
                     "national_id_number": _("A participant with this National ID / Passport number is already registered.")
                 })
 
-        phone = (attrs.get('phone_number') or '').strip()
-        if phone:
-            norm_phone = normalize_phone(phone)
-            if norm_phone:
-                existing_phones = active_regs.values_list('phone_number', flat=True)
-                for ep in existing_phones:
-                    if ep and normalize_phone(ep) == norm_phone:
-                        raise serializers.ValidationError({
-                            "phone_number": _("A participant with this phone number is already registered.")
-                        })
-
         email = (attrs.get('email') or '').strip()
         if email:
             if active_regs.filter(email__iexact=email).exists():
