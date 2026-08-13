@@ -180,12 +180,15 @@ class RegistrationViewSet(
         zip_buffer = io.BytesIO()
         
         now_str = datetime.now().strftime('%d AUG %Y, %H:%M').upper()
-        logo_path = '/home/khalfan/Desktop/ReligiousAttache/public/assets/Moi.jpg'
+        
+        import urllib.request
         try:
-            with open(logo_path, "rb") as f:
-                logo_b64 = base64.b64encode(f.read()).decode("utf-8")
+            req = urllib.request.Request("https://www.religiousattacheksa.co.ke/assets/Moi.jpg", headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=5) as response:
+                logo_b64 = base64.b64encode(response.read()).decode("utf-8")
                 logo_data_uri = f"data:image/jpeg;base64,{logo_b64}"
-        except:
+        except Exception as e:
+            print(f"Error fetching logo: {e}")
             logo_data_uri = ""
             
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
