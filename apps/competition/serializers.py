@@ -122,6 +122,10 @@ class RegistrationCreateSerializer(serializers.ModelSerializer):
         required=True,
         error_messages={'required': _('Memorisation category is required.')}
     )
+    email          = serializers.EmailField(
+        required=True,
+        error_messages={'required': _('Email address is required.')}
+    )
     id_document    = serializers.FileField(required=True)
     passport_photo = serializers.ImageField(required=True)
 
