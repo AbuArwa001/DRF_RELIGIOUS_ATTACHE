@@ -23,7 +23,7 @@ def send_status_update_email(registration):
         return False
 
     is_approved = (status == 'approved')
-    status_text = "Approved" if is_approved else "Rejected"
+    status_text = "Approved" if is_approved else "Unsuccessful"
     status_color = "#059669" if is_approved else "#DC2626"
     category_name = registration.category.name_en if registration.category else ""
     reviewer_notes = (registration.reviewer_notes or "").strip()
@@ -44,7 +44,7 @@ def send_status_update_email(registration):
             notes_block = f"""
             <div style="background-color: #FEF2F2; border: 1px solid #FECACA; border-left: 5px solid #DC2626; padding: 18px 20px; margin-bottom: 24px; border-radius: 8px;">
               <p style="font-size: 13px; font-weight: 800; color: #991B1B; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px;">
-                📌 Reviewer Note / Reason for Rejection:
+                📌 Reviewer Note / Reason for Decision:
               </p>
               <p style="font-size: 14.5px; color: #7F1D1D; margin: 0; line-height: 1.65; white-space: pre-wrap; font-weight: 500;">{reviewer_notes}</p>
             </div>
@@ -53,7 +53,7 @@ def send_status_update_email(registration):
         body_html_content = f"""
         <p style="font-size: 16px; font-weight: 700; color: #111827; margin-bottom: 12px;">Assalamu Alaikum, {registration.full_name}</p>
         <p style="font-size: 14.5px; color: #4B5563; line-height: 1.7; margin-bottom: 24px;">
-          Thank you for applying to the <strong>Annual Quran Memorization Competition 2026</strong>. After careful review, we regret to inform you that your application has been <strong style="color: #DC2626;">Rejected</strong>.
+          Thank you for applying to the <strong>Annual Quran Memorization Competition 2026</strong>. After careful review, we regret to inform you that your application was <strong style="color: #DC2626;">Unsuccessful</strong>.
         </p>
         {notes_block}
         <p style="font-size: 14.5px; color: #4B5563; line-height: 1.7; margin-bottom: 24px;">
