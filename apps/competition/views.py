@@ -75,13 +75,29 @@ class RegistrationViewSet(
         return [IsAdminUser()]
 
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        instance = serializer.save()
-        return Response(
-            RegistrationCreateSerializer(instance).data,
-            status=status.HTTP_201_CREATED,
-        )
+        email = str(request.data.get('email', '')).strip().lower()
+        if email:
+            from django.core.cache import cache
+            from django.utils.translation import gettext as _
+            lock_key = f"registration_lock_{email}"
+            if not cache.add(lock_key, 'locked', 10):
+                return Response(
+                    {"email": [_("A registration with this email is currently being processed. Please wait.")]},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+        try:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            instance = serializer.save()
+            return Response(
+                RegistrationCreateSerializer(instance).data,
+                status=status.HTTP_201_CREATED,
+            )
+        except Exception:
+            if email:
+                cache.delete(lock_key)
+            raise
 
     def update(self, request, *args, **kwargs):
         """Full update — admin can edit all editable fields."""
