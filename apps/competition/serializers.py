@@ -165,12 +165,7 @@ class RegistrationCreateSerializer(serializers.ModelSerializer):
                     "national_id_number": _("A participant with this National ID / Passport number is already registered.")
                 })
 
-        email = (attrs.get('email') or '').strip()
-        if email:
-            if active_regs.filter(email__iexact=email).exists():
-                raise serializers.ValidationError({
-                    "email": _("A participant with this email address is already registered.")
-                })
+
         
         county = attrs.get('county')
 

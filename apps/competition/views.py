@@ -82,23 +82,13 @@ class RegistrationViewSet(
         return [IsAdminUser()]
 
     def create(self, request, *args, **kwargs):
-        email = str(request.data.get('email', '')).strip().lower()
-        if email:
-            from django.core.cache import cache
-            from django.utils.translation import gettext as _
-            lock_key = f"registration_lock_{email}"
-            if not cache.add(lock_key, 'locked', 10):
-                return Response(
-                    {"email": [_("A registration with this email is currently being processed. Please wait.")]},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-                
         try:
             serializer = self.get_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             instance = serializer.save()
             
             # Invalidate public competition info cache to update stats instantly
+            from django.core.cache import cache
             cache.delete('competition_info_public')
             
             return Response(
@@ -106,8 +96,6 @@ class RegistrationViewSet(
                 status=status.HTTP_201_CREATED,
             )
         except Exception:
-            if email:
-                cache.delete(lock_key)
             raise
 
     def update(self, request, *args, **kwargs):
@@ -156,19 +144,18 @@ class RegistrationViewSet(
         """
         nat_id = (request.query_params.get('national_id') or '').strip()
         phone = (request.query_params.get('phone') or '').strip()
-        email = (request.query_params.get('email') or '').strip()
+        # email check removed
 
         active_regs = Registration.objects.exclude(status=Registration.Status.REJECTED)
 
         nat_id_dup = bool(nat_id and active_regs.filter(national_id_number__iexact=nat_id).exists())
-        email_dup = bool(email and active_regs.filter(email__iexact=email).exists())
 
         return Response({
-            'is_duplicate': nat_id_dup or email_dup,
+            'is_duplicate': nat_id_dup,
             'fields': {
                 'national_id': nat_id_dup,
                 'phone': False,
-                'email': email_dup,
+                'email': False,
             }
         })
 
