@@ -40,6 +40,13 @@ class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = CategorySerializer
     permission_classes = []  # fully public
 
+    from django.utils.decorators import method_decorator
+    from django.views.decorators.cache import cache_page
+
+    @method_decorator(cache_page(60 * 60 * 24))  # Cache for 24 hours
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
+
 
 class RegistrationViewSet(
     mixins.CreateModelMixin,
@@ -90,6 +97,10 @@ class RegistrationViewSet(
             serializer = self.get_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             instance = serializer.save()
+            
+            # Invalidate public competition info cache to update stats instantly
+            cache.delete('competition_info_public')
+            
             return Response(
                 RegistrationCreateSerializer(instance).data,
                 status=status.HTTP_201_CREATED,
@@ -724,9 +735,14 @@ class CompetitionInfoView(APIView):
 
     def get(self, request):
         """Return the current competition settings (public)."""
-        settings = CompetitionSettings.load()
-        serializer = CompetitionInfoSerializer(settings)
-        return Response(serializer.data)
+        from django.core.cache import cache
+        data = cache.get('competition_info_public')
+        if not data:
+            settings = CompetitionSettings.load()
+            serializer = CompetitionInfoSerializer(settings)
+            data = serializer.data
+            cache.set('competition_info_public', data, 60 * 60 * 12)  # Cache for 12 hours (invalidated on new registration)
+        return Response(data)
 
     def put(self, request):
         """Full update — all fields must be supplied."""
@@ -734,6 +750,8 @@ class CompetitionInfoView(APIView):
         serializer = CompetitionInfoAdminSerializer(settings, data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        from django.core.cache import cache
+        cache.delete('competition_info_public')
         return Response(serializer.data)
 
     def patch(self, request):
@@ -742,4 +760,6 @@ class CompetitionInfoView(APIView):
         serializer = CompetitionInfoAdminSerializer(settings, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        from django.core.cache import cache
+        cache.delete('competition_info_public')
         return Response(serializer.data)

@@ -5,7 +5,7 @@ from .base import *  # noqa
 from decouple import config, Csv
 import dj_database_url  # pip install dj-database-url
 
-DEBUG = True
+DEBUG = False
 
 DATABASES = {
     'default': dj_database_url.config(

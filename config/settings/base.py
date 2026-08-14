@@ -40,6 +40,7 @@ INSTALLED_APPS = [
 # ─── Middleware ───────────────────────────────────────────────────────────────
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',          # must be first
+    'django.middleware.gzip.GZipMiddleware',          # Compress API responses for extreme speed
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.locale.LocaleMiddleware',      # i18n locale detection
