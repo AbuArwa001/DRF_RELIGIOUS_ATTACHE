@@ -9,8 +9,11 @@ import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 FILE_UPLOAD_HANDLERS = [
+    'django.core.files.uploadhandler.MemoryFileUploadHandler',
     'django.core.files.uploadhandler.TemporaryFileUploadHandler',
 ]
+# Buffer files up to 10MB in RAM instead of writing to disk before S3 upload
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 # ─── Security ────────────────────────────────────────────────────────────────
 SECRET_KEY = config('SECRET_KEY')
 # ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=Csv())
@@ -151,6 +154,17 @@ if USE_S3:
     AWS_S3_OBJECT_PARAMETERS   = {
         'CacheControl': 'max-age=86400',
     }
+
+    # ── Upload Optimization ──────────────────────────────────────────────────
+    try:
+        import boto3.s3.transfer
+        AWS_S3_TRANSFER_CONFIG = boto3.s3.transfer.TransferConfig(
+            use_threads=True,         # Enable multi-threaded uploads
+            max_concurrency=10,       # Use up to 10 threads concurrently
+            multipart_chunksize=8 * 1024 * 1024,  # 8 MB chunks (optimizes speed for standard files)
+        )
+    except ImportError:
+        pass
 
     # ── Override default storage for uploaded media ──────────────────────────
     # Individual fields use their own storage class (PassportPhotoStorage /
