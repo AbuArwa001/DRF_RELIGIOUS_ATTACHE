@@ -170,7 +170,6 @@ class RegistrationCreateSerializer(serializers.ModelSerializer):
         county = attrs.get('county')
 
         if category and county:
-            settings = CompetitionSettings.load()
             limit = 10  # Enforced 10 spots per category per county as requested
             count = Registration.objects.filter(category=category, county=county).count()
             if count >= limit:
@@ -178,15 +177,6 @@ class RegistrationCreateSerializer(serializers.ModelSerializer):
                     "category": _(f"Registration limit of {limit} reached for {category.name_en} in {county} county.")
                 })
 
-        county = attrs.get('county')
-        if county:
-            settings = CompetitionSettings.load()
-            if settings.county_registration_limit:
-                count = Registration.objects.filter(county=county).count()
-                if count >= settings.county_registration_limit:
-                    raise serializers.ValidationError({
-                        "county": _(f"Registration limit reached for {county} county.")
-                    })
         return attrs
 
 
