@@ -1,0 +1,25 @@
+##
+### Request
+GET http://localhost:8000/api/v1/categories/
+### Response
+
+POST http://localhost:8000/api/v1/auth/token/
+Content-Type: application/json
+
+{
+    "username": "admin",
+    "password": "password"
+}
+
+###
+POST http://localhost:8000/api/v1/registrations/
+Content-Type: multipart/form-data
+
+{
+    "full_name": "John Doe",
+    "national_id": "123456789",
+    "phone": "123456789",
+    "email": "khalfanathman12@gmail.com",
+    "category": "1",
+    "files": "test.pdf",
+}
