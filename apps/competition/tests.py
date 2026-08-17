@@ -59,3 +59,58 @@ class DuplicateRegistrationTests(TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertFalse(res.data['is_duplicate'])
 
+
+from django.contrib.auth.models import User
+from django.core import mail
+
+class RegistrationUpdateTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin_user = User.objects.create_superuser(
+            username='admin',
+            email='admin@example.com',
+            password='password123'
+        )
+        self.client.force_authenticate(user=self.admin_user)
+        self.category = Category.objects.create(
+            name_en="15 Juz'",
+            name_ar="١٥ جزء",
+            juz_count=15,
+            max_age=18,
+            prize_sar=15000,
+            order=2
+        )
+        self.registration = Registration.objects.create(
+            full_name="Fatima Zahra",
+            date_of_birth=date(2010, 3, 15),
+            nationality="Kenyan",
+            national_id_number="BC987654",
+            county="Mombasa",
+            nominating_institution="Madrasa Noor",
+            phone_number="0722000000",
+            email="fatima@example.com",
+            category=self.category,
+            status=Registration.Status.PENDING
+        )
+
+    def test_update_registrant_name_and_institution_sends_email(self):
+        url = f"/api/v1/registrations/{self.registration.id}/"
+        payload = {
+            "full_name": "Fatima Zahra Hassan",
+            "nominating_institution": "Darul Uloom Mombasa",
+            "reviewer_notes": "Updated surname and school as requested by administration."
+        }
+        res = self.client.patch(url, payload, format='json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['full_name'], "Fatima Zahra Hassan")
+        self.assertEqual(res.data['nominating_institution'], "Darul Uloom Mombasa")
+        self.assertTrue(res.data.get('email_sent'))
+
+        # Verify email was dispatched
+        self.assertGreaterEqual(len(mail.outbox), 1)
+        sent_email = mail.outbox[-1]
+        self.assertIn("Fatima Zahra Hassan", sent_email.subject)
+        self.assertIn("fatima@example.com", sent_email.to)
+        self.assertIn("Darul Uloom Mombasa", sent_email.body)
+
+

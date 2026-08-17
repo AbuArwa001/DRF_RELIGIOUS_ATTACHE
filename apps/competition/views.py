@@ -17,12 +17,17 @@ from .serializers import (
     RegistrationAdminSerializer,
 )
 from .permissions import IsAdminUser
-from .validators import normalize_phone
-from .emails import send_status_update_email, send_category_update_email
+from .emails import (
+    send_status_update_email,
+    send_category_update_email,
+    send_profile_update_email,
+)
 
 import io
 import zipfile
-from django.http import FileResponse
+import xlsxwriter
+from django.db.models import Count
+from django.http import FileResponse, HttpResponse
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
@@ -99,24 +104,83 @@ class RegistrationViewSet(
             raise
 
     def update(self, request, *args, **kwargs):
-        """Full update — admin can edit all editable fields."""
+        """Full or partial update — admin can edit all editable fields, including photo and details."""
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
+
+        # Snapshot old values
         old_status = instance.status
+        old_full_name = instance.full_name
+        old_institution = instance.nominating_institution
+        old_email = instance.email
+        old_phone = instance.phone_number
+        old_alt_phone = instance.alternative_phone
+        old_dob = instance.date_of_birth
+        old_county = instance.county
+        old_nat_id = instance.national_id_number
         old_category_id = instance.category_id
         old_category_name = instance.category.name_en if instance.category else None
+        old_photo_name = instance.passport_photo.name if instance.passport_photo else None
+        old_doc_name = instance.id_document.name if instance.id_document else None
+
         serializer = RegistrationAdminSerializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         updated_instance = serializer.save()
 
-        # Invalidate public stats cache if category changed
-        if old_category_id != updated_instance.category_id:
+        # Invalidate public stats cache if category or county changed
+        if old_category_id != updated_instance.category_id or old_county != updated_instance.county:
             from django.core.cache import cache
             cache.delete('competition_info_public')
 
-        if updated_instance.status in ['rejected', 'approved'] and old_status != updated_instance.status:
-            send_status_update_email(updated_instance)
-        return Response(serializer.data)
+        # Detect changed fields
+        changed_fields = {}
+        if old_full_name != updated_instance.full_name:
+            changed_fields['full_name'] = {'label': 'Full Name', 'old': old_full_name, 'new': updated_instance.full_name}
+        if old_institution != updated_instance.nominating_institution:
+            changed_fields['nominating_institution'] = {'label': 'Nominating Institution', 'old': old_institution, 'new': updated_instance.nominating_institution}
+        if old_email != updated_instance.email:
+            changed_fields['email'] = {'label': 'Email Address', 'old': old_email, 'new': updated_instance.email}
+        if old_phone != updated_instance.phone_number:
+            changed_fields['phone_number'] = {'label': 'Phone Number', 'old': old_phone, 'new': updated_instance.phone_number}
+        if old_alt_phone != updated_instance.alternative_phone:
+            changed_fields['alternative_phone'] = {'label': 'Alternative Phone', 'old': old_alt_phone, 'new': updated_instance.alternative_phone}
+        if old_dob != updated_instance.date_of_birth:
+            changed_fields['date_of_birth'] = {'label': 'Date of Birth', 'old': str(old_dob), 'new': str(updated_instance.date_of_birth)}
+        if old_county != updated_instance.county:
+            changed_fields['county'] = {'label': 'County', 'old': old_county, 'new': updated_instance.county}
+        if old_nat_id != updated_instance.national_id_number:
+            changed_fields['national_id_number'] = {'label': 'National ID / Passport', 'old': old_nat_id, 'new': updated_instance.national_id_number}
+        if old_category_id != updated_instance.category_id:
+            changed_fields['category'] = {'label': 'Memorization Category', 'old': old_category_name or 'Unassigned', 'new': updated_instance.category.name_en if updated_instance.category else 'Unassigned'}
+        if ('passport_photo' in request.FILES) or (updated_instance.passport_photo and updated_instance.passport_photo.name != old_photo_name):
+            changed_fields['passport_photo'] = {'label': 'Passport Photo', 'old': 'Previous Photo', 'new': 'Updated Photo'}
+        if ('id_document' in request.FILES) or (updated_instance.id_document and updated_instance.id_document.name != old_doc_name):
+            changed_fields['id_document'] = {'label': 'ID Document', 'old': 'Previous Document', 'new': 'Updated Document'}
+
+        send_email_flag = request.data.get('send_email', True)
+        if isinstance(send_email_flag, str):
+            send_email_flag = send_email_flag.lower() in ('true', '1', 'yes')
+
+        email_sent = False
+        reason = (request.data.get('reason') or request.data.get('reviewer_notes') or '').strip()
+
+        if send_email_flag:
+            # If profile details changed, send profile update email
+            if changed_fields:
+                extra_recipients = [old_email] if (old_email and old_email != updated_instance.email) else None
+                email_sent = send_profile_update_email(
+                    registration=updated_instance,
+                    changed_fields=changed_fields,
+                    reason=reason,
+                    extra_recipients=extra_recipients,
+                )
+            # If ONLY status changed and no profile details changed
+            elif updated_instance.status in ['rejected', 'approved'] and old_status != updated_instance.status:
+                email_sent = send_status_update_email(updated_instance)
+
+        response_data = serializer.data
+        response_data['email_sent'] = email_sent
+        return Response(response_data)
 
     def destroy(self, request, *args, **kwargs):
         """Delete a registration entry."""
@@ -198,6 +262,93 @@ class RegistrationViewSet(
             'email_sent': email_sent,
             'message': f"Participant category changed to {new_category.name_en} successfully."
         }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAdminUser], url_path='export_analysis')
+    def export_analysis(self, request):
+        """
+        GET /api/v1/registrations/export_analysis/?pivot=category|county|status
+        Generates an Excel file with pivot charts and raw data.
+        """
+        pivot = request.query_params.get('pivot', 'category').lower()
+        if pivot not in ['category', 'county', 'status']:
+            pivot = 'category'
+            
+        pivot_field = 'category__name_en' if pivot == 'category' else pivot
+        
+        registrations = self.get_queryset()
+        pivot_data = registrations.values(pivot_field).annotate(count=Count('id')).order_by('-count')
+        
+        output = io.BytesIO()
+        workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+        
+        header_format = workbook.add_format({'bold': True, 'bg_color': '#0E7A4A', 'font_color': 'white'})
+        
+        # --- Sheet 1: Dashboard ---
+        dashboard_sheet = workbook.add_worksheet('Dashboard')
+        dashboard_sheet.set_column('A:A', 25)
+        dashboard_sheet.set_column('B:B', 15)
+        
+        dashboard_sheet.write('A1', f'Pivot by {pivot.capitalize()}', header_format)
+        dashboard_sheet.write('B1', 'Count', header_format)
+        
+        row = 1
+        for item in pivot_data:
+            label = item[pivot_field] or 'Unknown'
+            dashboard_sheet.write(row, 0, str(label))
+            dashboard_sheet.write(row, 1, item['count'])
+            row += 1
+            
+        chart = workbook.add_chart({'type': 'pie'})
+        chart.add_series({
+            'name': f'Registrations by {pivot.capitalize()}',
+            'categories': ['Dashboard', 1, 0, row - 1, 0],
+            'values': ['Dashboard', 1, 1, row - 1, 1],
+            'data_labels': {'value': True, 'percentage': True},
+        })
+        chart.set_title({'name': f'Registration Distribution ({pivot.capitalize()})'})
+        chart.set_style(10)
+        chart.set_size({'width': 600, 'height': 400})
+        dashboard_sheet.insert_chart('D2', chart)
+        
+        # --- Sheet 2: Raw Data ---
+        raw_sheet = workbook.add_worksheet('Raw Data')
+        columns = [
+            'ID', 'Full Name', 'Category', 'Age', 'County', 'Status', 
+            'Nominating Institution', 'Phone', 'Email', 'Submitted At'
+        ]
+        for col_num, column_title in enumerate(columns):
+            raw_sheet.write(0, col_num, column_title, header_format)
+            
+        raw_sheet.set_column('A:A', 10)
+        raw_sheet.set_column('B:B', 30)
+        raw_sheet.set_column('C:C', 20)
+        raw_sheet.set_column('E:E', 20)
+        raw_sheet.set_column('G:G', 30)
+        raw_sheet.set_column('H:J', 25)
+        
+        row = 1
+        for reg in registrations.select_related('category'):
+            raw_sheet.write(row, 0, f"REF-{reg.id:05d}")
+            raw_sheet.write(row, 1, reg.full_name)
+            raw_sheet.write(row, 2, reg.category.name_en if reg.category else 'N/A')
+            raw_sheet.write(row, 3, reg.age or 'N/A')
+            raw_sheet.write(row, 4, reg.county or 'N/A')
+            raw_sheet.write(row, 5, reg.status.upper())
+            raw_sheet.write(row, 6, reg.nominating_institution or 'N/A')
+            raw_sheet.write(row, 7, reg.phone_number or 'N/A')
+            raw_sheet.write(row, 8, reg.email or 'N/A')
+            raw_sheet.write(row, 9, reg.submitted_at.strftime('%Y-%m-%d %H:%M:%S'))
+            row += 1
+            
+        workbook.close()
+        output.seek(0)
+        
+        response = HttpResponse(
+            output.read(), 
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = f'attachment; filename=Analytics_{pivot}.xlsx'
+        return response
 
     @action(detail=False, methods=['get'], permission_classes=[], url_path='check_duplicate')
     def check_duplicate(self, request):

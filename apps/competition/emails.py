@@ -251,3 +251,187 @@ def send_category_update_email(registration, old_category_name=None, new_categor
         logger.error(f"Failed to send category update email to {registration.email}: {e}")
         return False
 
+
+def send_profile_update_email(registration, changed_fields=None, reason=None, old_data=None, extra_recipients=None):
+    """
+    Sends an email notification to the participant / nominating institution when their
+    registration profile details (name, passport photo, ID document, institution, contact, etc.)
+    are updated by the administration.
+    """
+    if not registration:
+        return False
+
+    recipients = []
+    if registration.email and registration.email.strip():
+        recipients.append(registration.email.strip())
+
+    if extra_recipients:
+        for r in extra_recipients:
+            if r and r.strip() and r.strip() not in recipients:
+                recipients.append(r.strip())
+
+    if not recipients:
+        logger.info(f"Skipping profile update email for registration ID {getattr(registration, 'id', None)}: No recipient email.")
+        return False
+
+    category_name = registration.category.name_en if registration.category else "Unassigned"
+    reason_clean = (reason or "").strip()
+    ref_str = f"REF-{registration.id:05d}" if registration.id else "—"
+
+    # Format changed fields list
+    changes_html = ""
+    if changed_fields:
+        rows = []
+        if isinstance(changed_fields, dict):
+            for field_key, val in changed_fields.items():
+                if isinstance(val, dict):
+                    label = val.get('label', field_key.replace('_', ' ').title())
+                    old_v = val.get('old', '—')
+                    new_v = val.get('new', '—')
+                    rows.append(f"""
+                    <tr style="border-bottom: 1px solid #E5E7EB;">
+                      <td style="padding: 10px 14px; font-weight: 700; color: #374151; font-size: 13px; width: 140px;">{label}</td>
+                      <td style="padding: 10px 14px; color: #6B7280; font-size: 12.5px; text-decoration: line-through;">{old_v}</td>
+                      <td style="padding: 10px 14px; color: #0E7A4A; font-weight: 700; font-size: 13px;">{new_v}</td>
+                    </tr>
+                    """)
+                else:
+                    label = field_key.replace('_', ' ').title()
+                    rows.append(f"""
+                    <tr style="border-bottom: 1px solid #E5E7EB;">
+                      <td style="padding: 10px 14px; font-weight: 700; color: #374151; font-size: 13px;">{label}</td>
+                      <td colspan="2" style="padding: 10px 14px; color: #0E7A4A; font-weight: 700; font-size: 13px;">{val}</td>
+                    </tr>
+                    """)
+        elif isinstance(changed_fields, list):
+            for item in changed_fields:
+                rows.append(f"""
+                <tr style="border-bottom: 1px solid #E5E7EB;">
+                  <td colspan="3" style="padding: 10px 14px; color: #0E7A4A; font-weight: 700; font-size: 13px;">✓ {item}</td>
+                </tr>
+                """)
+
+        if rows:
+            changes_html = f"""
+            <div style="margin-bottom: 24px;">
+              <p style="font-size: 13px; font-weight: 700; color: #374151; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px;">
+                🔄 Modified Details
+              </p>
+              <div style="background: #F8FAFC; border: 1.5px solid #E2E8F0; border-radius: 10px; overflow: hidden;">
+                <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                  <thead>
+                    <tr style="background: #EDF2F7; border-bottom: 1px solid #CBD5E1;">
+                      <th style="padding: 10px 14px; font-size: 11.5px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 0.05em;">Field</th>
+                      <th style="padding: 10px 14px; font-size: 11.5px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 0.05em;">Previous</th>
+                      <th style="padding: 10px 14px; font-size: 11.5px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 0.05em;">Updated Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {''.join(rows)}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            """
+
+    reason_block = ""
+    if reason_clean:
+        reason_block = f"""
+        <div style="background-color: #EFF6FF; border: 1px solid #BFDBFE; border-left: 5px solid #2563EB; padding: 18px 20px; margin-bottom: 24px; border-radius: 8px;">
+          <p style="font-size: 13px; font-weight: 800; color: #1E40AF; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em;">
+            📌 Committee Note / Reason:
+          </p>
+          <p style="font-size: 14.5px; color: #1E3A8A; margin: 0; line-height: 1.65; white-space: pre-wrap; font-weight: 500;">{reason_clean}</p>
+        </div>
+        """
+
+    institution_info = f"<strong>{registration.nominating_institution}</strong>" if registration.nominating_institution else "your institution"
+
+    html_message = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Registration Details Updated</title>
+</head>
+<body style="font-family: Arial, sans-serif; background-color: #F3F4F6; margin: 0; padding: 24px 0;">
+  <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08);">
+    <div style="background: linear-gradient(135deg, #0E7A4A 0%, #166534 100%); padding: 36px 32px; text-align: center;">
+      <h1 style="color: #ffffff; font-size: 24px; font-weight: 800; margin: 0 0 8px 0;">Quran Competition 2026</h1>
+      <p style="color: rgba(255,255,255,0.8); font-size: 14px; margin: 0;">Religious Attaché · Embassy of Saudi Arabia, Nairobi</p>
+    </div>
+    <div style="height: 4px; background: linear-gradient(90deg, #BFA84F, #D4C068, #BFA84F);"></div>
+    <div style="padding: 32px;">
+      <p style="font-size: 16px; font-weight: 700; color: #111827; margin-bottom: 12px;">Assalamu Alaikum,</p>
+      <p style="font-size: 14.5px; color: #4B5563; line-height: 1.7; margin-bottom: 20px;">
+        Please be informed that the candidate registration details for <strong>{registration.full_name}</strong> ({institution_info}) for the <strong>Annual Quran Memorization Competition 2026</strong> have been updated by the organizing committee.
+      </p>
+
+      {changes_html}
+      {reason_block}
+
+      <p style="font-size: 13px; font-weight: 700; color: #374151; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 14px;">📋 Updated Application Summary</p>
+      <div style="background: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 10px; overflow: hidden; margin-bottom: 24px;">
+        <div style="display: flex; padding: 12px 16px; border-bottom: 1px solid #E5E7EB;">
+          <span style="font-size: 12.5px; font-weight: 600; color: #6B7280; width: 140px; flex-shrink: 0;">Full Name</span>
+          <span style="font-size: 13px; font-weight: 700; color: #111827;">{registration.full_name}</span>
+        </div>
+        <div style="display: flex; padding: 12px 16px; border-bottom: 1px solid #E5E7EB;">
+          <span style="font-size: 12.5px; font-weight: 600; color: #6B7280; width: 140px; flex-shrink: 0;">Reference No.</span>
+          <span style="font-size: 13px; font-weight: 700; color: #111827;">{ref_str}</span>
+        </div>
+        <div style="display: flex; padding: 12px 16px; border-bottom: 1px solid #E5E7EB;">
+          <span style="font-size: 12.5px; font-weight: 600; color: #6B7280; width: 140px; flex-shrink: 0;">Institution</span>
+          <span style="font-size: 13px; font-weight: 600; color: #111827;">{registration.nominating_institution or '—'}</span>
+        </div>
+        <div style="display: flex; padding: 12px 16px; border-bottom: 1px solid #E5E7EB;">
+          <span style="font-size: 12.5px; font-weight: 600; color: #6B7280; width: 140px; flex-shrink: 0;">Category</span>
+          <span style="font-size: 13px; font-weight: 800; color: #0E7A4A;">{category_name}</span>
+        </div>
+        {f'''
+        <div style="display: flex; padding: 12px 16px; border-bottom: 1px solid #E5E7EB;">
+          <span style="font-size: 12.5px; font-weight: 600; color: #6B7280; width: 140px; flex-shrink: 0;">County</span>
+          <span style="font-size: 13px; font-weight: 600; color: #111827;">{registration.county}</span>
+        </div>
+        ''' if registration.county else ''}
+        <div style="display: flex; padding: 12px 16px;">
+          <span style="font-size: 12.5px; font-weight: 600; color: #6B7280; width: 140px; flex-shrink: 0;">Status</span>
+          <span style="font-size: 13px; font-weight: 700; color: #111827; text-transform: capitalize;">{registration.status}</span>
+        </div>
+      </div>
+
+      <p style="font-size: 13.5px; color: #4B5563; line-height: 1.7; margin-bottom: 12px;">
+        If you have any questions regarding these updates, please contact the competition organizing committee quoting your reference number.
+      </p>
+      <p style="font-size: 13px; color: #6B7280; line-height: 1.6;">
+        Religious Attaché — Embassy of the Kingdom of Saudi Arabia, Nairobi
+      </p>
+    </div>
+    <div style="background: #F9FAFB; border-top: 1px solid #E5E7EB; padding: 20px 32px; text-align: center; font-size: 12px; color: #6B7280;">
+      Religious Attaché — Embassy of the Kingdom of Saudi Arabia, Nairobi
+    </div>
+  </div>
+</body>
+</html>
+    """.strip()
+
+    subject = f"Registration Details Updated – {registration.full_name} | Quran Competition 2026"
+    plain_message = strip_tags(html_message)
+    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@religiousattacheksa.co.ke')
+
+    try:
+        send_mail(
+            subject=subject,
+            message=plain_message,
+            from_email=from_email,
+            recipient_list=recipients,
+            html_message=html_message,
+            fail_silently=True,
+        )
+        logger.info(f"Profile update email sent to {recipients}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send profile update email to {recipients}: {e}")
+        return False
+
+

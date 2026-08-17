@@ -183,10 +183,12 @@ class RegistrationCreateSerializer(serializers.ModelSerializer):
 class RegistrationAdminSerializer(serializers.ModelSerializer):
     """
     Admin-only serializer for reviewing and updating registrations.
-    Includes all personal details, status, notes, and computed age.
+    Includes all personal details, status, notes, computed age, and allows file updates.
     """
     age           = serializers.SerializerMethodField()
     category_name = serializers.SerializerMethodField()
+    id_document   = serializers.FileField(required=False, allow_null=True)
+    passport_photo = serializers.ImageField(required=False, allow_null=True)
 
     class Meta:
         model  = Registration
@@ -201,8 +203,26 @@ class RegistrationAdminSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'age', 'category_name', 'submitted_at', 'updated_at']
 
+    def validate_id_document(self, value):
+        if value:
+            validate_id_document(value)
+        return value
+
+    def validate_passport_photo(self, value):
+        if value:
+            validate_passport_photo(value)
+        return value
+
+    def validate(self, attrs):
+        dob = attrs.get('date_of_birth') or (self.instance.date_of_birth if self.instance else None)
+        category = attrs.get('category') or (self.instance.category if self.instance else None)
+        if dob and category:
+            validate_age_for_category(dob, category)
+        return attrs
+
     def get_age(self, obj):
         return obj.age
 
     def get_category_name(self, obj):
         return getattr(obj.category, 'name_en', None)
+
