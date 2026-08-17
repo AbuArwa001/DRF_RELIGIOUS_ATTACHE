@@ -133,3 +133,121 @@ def send_status_update_email(registration):
     except Exception as e:
         logger.error(f"Failed to send email to {registration.email}: {e}")
         return False
+
+
+def send_category_update_email(registration, old_category_name=None, new_category_name=None, reason=None):
+    """
+    Sends an email notification to the participant when their competition memorization
+    category (Juz') is changed by the administration.
+    """
+    if not registration or not registration.email:
+        logger.info(f"Skipping category update email for registration ID {getattr(registration, 'id', None)}: No email address.")
+        return False
+
+    old_cat = old_category_name or "Previous Category"
+    new_cat = new_category_name or (registration.category.name_en if registration.category else "Updated Category")
+    reason_clean = (reason or "").strip()
+
+    reason_block = ""
+    if reason_clean:
+        reason_block = f"""
+        <div style="background-color: #EFF6FF; border: 1px solid #BFDBFE; border-left: 5px solid #2563EB; padding: 18px 20px; margin-bottom: 24px; border-radius: 8px;">
+          <p style="font-size: 13px; font-weight: 800; color: #1E40AF; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px;">
+            📌 Committee Note / Reason:
+          </p>
+          <p style="font-size: 14.5px; color: #1E3A8A; margin: 0; line-height: 1.65; white-space: pre-wrap; font-weight: 500;">{reason_clean}</p>
+        </div>
+        """
+
+    ref_str = f"REF-{registration.id:05d}" if registration.id else "—"
+
+    body_html_content = f"""
+    <p style="font-size: 16px; font-weight: 700; color: #111827; margin-bottom: 12px;">Assalamu Alaikum, {registration.full_name}</p>
+    <p style="font-size: 14.5px; color: #4B5563; line-height: 1.7; margin-bottom: 20px;">
+      We would like to notify you that your assigned memorization category for the <strong>Annual Quran Memorization Competition 2026</strong> has been updated by the organizing committee.
+    </p>
+
+    <!-- Category Comparison Badge -->
+    <div style="background: #F0FDF4; border: 1.5px solid #BBF7D0; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 24px;">
+      <div style="font-size: 12px; font-weight: 700; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;">
+        Previous: <span style="text-decoration: line-through; color: #9CA3AF;">{old_cat}</span>
+      </div>
+      <div style="font-size: 22px; font-weight: 800; color: #0E7A4A;">
+        ✨ New Category: {new_cat}
+      </div>
+    </div>
+
+    {reason_block}
+
+    <p style="font-size: 13px; font-weight: 700; color: #374151; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 14px;">📋 Updated Application Summary</p>
+    <div style="background: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 10px; overflow: hidden; margin-bottom: 24px;">
+      <div style="display: flex; padding: 12px 16px; border-bottom: 1px solid #E5E7EB;">
+        <span style="font-size: 12.5px; font-weight: 600; color: #6B7280; width: 140px; flex-shrink: 0;">Full Name</span>
+        <span style="font-size: 13px; font-weight: 600; color: #111827;">{registration.full_name}</span>
+      </div>
+      <div style="display: flex; padding: 12px 16px; border-bottom: 1px solid #E5E7EB;">
+        <span style="font-size: 12.5px; font-weight: 600; color: #6B7280; width: 140px; flex-shrink: 0;">Reference No.</span>
+        <span style="font-size: 13px; font-weight: 600; color: #111827;">{ref_str}</span>
+      </div>
+      <div style="display: flex; padding: 12px 16px; border-bottom: 1px solid #E5E7EB;">
+        <span style="font-size: 12.5px; font-weight: 600; color: #6B7280; width: 140px; flex-shrink: 0;">Assigned Category</span>
+        <span style="font-size: 13px; font-weight: 800; color: #0E7A4A;">{new_cat}</span>
+      </div>
+      <div style="display: flex; padding: 12px 16px;">
+        <span style="font-size: 12.5px; font-weight: 600; color: #6B7280; width: 140px; flex-shrink: 0;">Current Status</span>
+        <span style="font-size: 13px; font-weight: 600; color: #111827; text-transform: capitalize;">{registration.status}</span>
+      </div>
+    </div>
+
+    <p style="font-size: 13.5px; color: #4B5563; line-height: 1.7; margin-bottom: 12px;">
+      Please make sure you are prepared according to the memorization requirements of your new category. If you have any inquiries, you may contact the organizing committee.
+    </p>
+    <p style="font-size: 13px; color: #6B7280; line-height: 1.6;">
+      May Allah grant you success and reward your dedication to the Holy Quran.
+    </p>
+    """
+
+    html_message = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Memorization Category Update</title>
+</head>
+<body style="font-family: Arial, sans-serif; background-color: #F3F4F6; margin: 0; padding: 24px 0;">
+  <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08);">
+    <div style="background: linear-gradient(135deg, #0E7A4A 0%, #166534 100%); padding: 36px 32px; text-align: center;">
+      <h1 style="color: #ffffff; font-size: 24px; font-weight: 800; margin: 0 0 8px 0;">Quran Competition 2026</h1>
+      <p style="color: rgba(255,255,255,0.8); font-size: 14px; margin: 0;">Religious Attaché · Embassy of Saudi Arabia, Nairobi</p>
+    </div>
+    <div style="height: 4px; background: linear-gradient(90deg, #BFA84F, #D4C068, #BFA84F);"></div>
+    <div style="padding: 32px;">
+      {body_html_content}
+    </div>
+    <div style="background: #F9FAFB; border-top: 1px solid #E5E7EB; padding: 20px 32px; text-align: center; font-size: 12px; color: #6B7280;">
+      Religious Attaché — Embassy of the Kingdom of Saudi Arabia, Nairobi
+    </div>
+  </div>
+</body>
+</html>
+    """.strip()
+
+    subject = f"Category Updated to {new_cat} | Quran Competition 2026"
+    plain_message = strip_tags(html_message)
+    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@religiousattacheksa.co.ke')
+
+    try:
+        send_mail(
+            subject=subject,
+            message=plain_message,
+            from_email=from_email,
+            recipient_list=[registration.email],
+            html_message=html_message,
+            fail_silently=True,
+        )
+        logger.info(f"Category update email sent to {registration.email} ({new_cat})")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send category update email to {registration.email}: {e}")
+        return False
+

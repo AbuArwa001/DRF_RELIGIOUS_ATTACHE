@@ -18,7 +18,7 @@ from .serializers import (
 )
 from .permissions import IsAdminUser
 from .validators import normalize_phone
-from .emails import send_status_update_email
+from .emails import send_status_update_email, send_category_update_email
 
 import io
 import zipfile
@@ -103,9 +103,17 @@ class RegistrationViewSet(
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
         old_status = instance.status
+        old_category_id = instance.category_id
+        old_category_name = instance.category.name_en if instance.category else None
         serializer = RegistrationAdminSerializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         updated_instance = serializer.save()
+
+        # Invalidate public stats cache if category changed
+        if old_category_id != updated_instance.category_id:
+            from django.core.cache import cache
+            cache.delete('competition_info_public')
+
         if updated_instance.status in ['rejected', 'approved'] and old_status != updated_instance.status:
             send_status_update_email(updated_instance)
         return Response(serializer.data)
@@ -135,6 +143,61 @@ class RegistrationViewSet(
         if updated_instance.status in ['rejected', 'approved'] and old_status != updated_instance.status:
             send_status_update_email(updated_instance)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['post', 'patch'], permission_classes=[IsAdminUser], url_path='change_category')
+    def change_category(self, request, pk=None):
+        """
+        POST/PATCH /api/v1/registrations/{id}/change_category/
+        Body: {
+            "category": 2,          # or "category_id": 2
+            "reason": "Optional note",
+            "send_email": true      # optional boolean, default: True
+        }
+        Updates the participant's memorization category and sends an email notification.
+        """
+        registration = self.get_object()
+        category_id = request.data.get('category') or request.data.get('category_id')
+        if not category_id:
+            return Response({'error': 'Please provide a valid category ID.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            new_category = Category.objects.get(pk=category_id)
+        except Category.DoesNotExist:
+            return Response({'error': 'The specified category does not exist.'}, status=status.HTTP_404_NOT_FOUND)
+
+        old_category_name = registration.category.name_en if registration.category else "Unassigned"
+        reason = (request.data.get('reason') or '').strip()
+        send_email_flag = request.data.get('send_email', True)
+        if isinstance(send_email_flag, str):
+            send_email_flag = send_email_flag.lower() in ('true', '1', 'yes')
+
+        registration.category = new_category
+        if reason:
+            existing_notes = registration.reviewer_notes or ""
+            note_entry = f"[Category changed to {new_category.name_en}]: {reason}"
+            registration.reviewer_notes = f"{existing_notes}\n{note_entry}".strip() if existing_notes else note_entry
+
+        registration.save(update_fields=['category', 'reviewer_notes', 'updated_at'])
+
+        # Invalidate stats cache
+        from django.core.cache import cache
+        cache.delete('competition_info_public')
+
+        email_sent = False
+        if send_email_flag:
+            email_sent = send_category_update_email(
+                registration=registration,
+                old_category_name=old_category_name,
+                new_category_name=new_category.name_en,
+                reason=reason,
+            )
+
+        serializer = RegistrationAdminSerializer(registration)
+        return Response({
+            **serializer.data,
+            'email_sent': email_sent,
+            'message': f"Participant category changed to {new_category.name_en} successfully."
+        }, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'], permission_classes=[], url_path='check_duplicate')
     def check_duplicate(self, request):
