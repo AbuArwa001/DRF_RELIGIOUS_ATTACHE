@@ -8,6 +8,7 @@ from .validators import (
     validate_age_for_category,
     validate_id_document,
     validate_passport_photo,
+    validate_email_address,
     normalize_phone,
 )
 
@@ -149,6 +150,9 @@ class RegistrationCreateSerializer(serializers.ModelSerializer):
         validate_passport_photo(value)
         return value
 
+    def validate_email(self, value):
+        return validate_email_address(value)
+
     def validate(self, attrs):
         dob      = attrs.get('date_of_birth')
         category = attrs.get('category')
@@ -211,6 +215,11 @@ class RegistrationAdminSerializer(serializers.ModelSerializer):
     def validate_passport_photo(self, value):
         if value:
             validate_passport_photo(value)
+        return value
+
+    def validate_email(self, value):
+        if value:
+            return validate_email_address(value)
         return value
 
     def validate(self, attrs):

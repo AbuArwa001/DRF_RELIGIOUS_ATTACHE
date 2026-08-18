@@ -73,3 +73,71 @@ def validate_passport_photo(file) -> None:
         raise ValidationError(
             _('Passport photo must not exceed 2 MB.')
         )
+
+
+DISPOSABLE_DOMAINS = {
+    'mailinator.com', 'tempmail.com', 'temp-mail.org', '10minutemail.com',
+    'guerrillamail.com', 'sharklasers.com', 'throwawaymail.com', 'yopmail.com',
+    'dispostable.com', 'trashmail.com', 'getairmail.com', 'maildrop.cc',
+    'fakeinbox.com', 'mohmal.com', 'generator.email', 'tempinbox.com',
+}
+
+KNOWN_TYPO_DOMAINS = {
+    'gamil.com', 'gmial.com', 'gmaill.com', 'gmil.com', 'gmai.com',
+    'gmail.con', 'gmail.co', 'gmail.cm', 'gmal.com', 'gmaik.com',
+    'gmeil.com', 'gnail.com', 'gemail.com', 'gmaul.com', 'gamil.con',
+    'yaho.com', 'yahoo.con', 'yahoo.co', 'yhaoo.com', 'yhoo.com',
+    'hotmial.com', 'hotmale.com', 'hotmaill.com', 'hotmai.com',
+    'outlok.com', 'outllok.com', 'otlook.com', 'outlook.con',
+    'icloude.com', 'iclod.com',
+}
+
+
+def validate_email_address(email_str: str) -> str:
+    """
+    Validate email address format, reject disposable/typo domains,
+    and verify domain DNS deliverability.
+    """
+    import re
+    import socket
+    from django.core.validators import EmailValidator
+    from django.core.exceptions import ValidationError as DjangoValidationError
+
+    if not email_str:
+        raise ValidationError(_('Email address is required.'))
+
+    clean_email = email_str.strip().lower()
+
+    if len(clean_email) > 254:
+        raise ValidationError(_('Email address is too long.'))
+
+    django_validator = EmailValidator()
+    try:
+        django_validator(clean_email)
+    except DjangoValidationError:
+        raise ValidationError(_('Please enter a valid email address.'))
+
+    parts = clean_email.split('@')
+    if len(parts) != 2:
+        raise ValidationError(_('Please enter a valid email address.'))
+
+    local_part, domain = parts
+
+    if domain in KNOWN_TYPO_DOMAINS:
+        raise ValidationError(
+            _('The email domain "%(domain)s" appears to be a typo. Please check your email address.') % {'domain': domain}
+        )
+
+    if domain in DISPOSABLE_DOMAINS:
+        raise ValidationError(_('Temporary or disposable email addresses are not permitted.'))
+
+    # Basic DNS host resolution check for domain existence
+    try:
+        socket.getaddrinfo(domain, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+    except (socket.gaierror, socket.herror, OSError):
+        raise ValidationError(
+            _('The email domain "%(domain)s" could not be verified. Please check for spelling mistakes.') % {'domain': domain}
+        )
+
+    return clean_email
+
