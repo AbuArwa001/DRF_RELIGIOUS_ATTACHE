@@ -191,6 +191,7 @@ class RegistrationAdminSerializer(serializers.ModelSerializer):
     """
     age           = serializers.SerializerMethodField()
     category_name = serializers.SerializerMethodField()
+    category_juz_count = serializers.SerializerMethodField()
     id_document   = serializers.FileField(required=False, allow_null=True)
     passport_photo = serializers.ImageField(required=False, allow_null=True)
 
@@ -199,13 +200,13 @@ class RegistrationAdminSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'full_name', 'date_of_birth', 'age',
             'nationality', 'national_id_number', 'current_residence', 'county',
-            'category', 'category_name',
+            'category', 'category_name', 'category_juz_count',
             'nominating_institution', 'phone_number', 'alternative_phone', 'email',
             'id_document', 'passport_photo',
             'status', 'reviewer_notes',
             'submitted_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'age', 'category_name', 'submitted_at', 'updated_at']
+        read_only_fields = ['id', 'age', 'category_name', 'category_juz_count', 'submitted_at', 'updated_at']
 
     def validate_id_document(self, value):
         if value:
@@ -234,4 +235,8 @@ class RegistrationAdminSerializer(serializers.ModelSerializer):
 
     def get_category_name(self, obj):
         return getattr(obj.category, 'name_en', None)
+
+    def get_category_juz_count(self, obj):
+        return getattr(obj.category, 'juz_count', None)
+
 
