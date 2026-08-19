@@ -147,3 +147,31 @@ class CompetitionSettings(models.Model):
             'venue_ar': 'نيروبي، كينيا',
         })
         return obj
+
+
+class AuditLog(models.Model):
+    """Logs system events such as logins, data changes, and deletions."""
+
+    class Action(models.TextChoices):
+        LOGIN = 'LOGIN', _('Login')
+        CREATE = 'CREATE', _('Create')
+        UPDATE = 'UPDATE', _('Update')
+        DELETE = 'DELETE', _('Delete')
+
+    user = models.CharField(_('User'), max_length=150, blank=True, null=True, help_text=_("Username of the admin who performed the action"))
+    action = models.CharField(_('Action'), max_length=20, choices=Action.choices)
+    module = models.CharField(_('Module'), max_length=100, help_text=_("E.g., Registration, Auth, Settings"))
+    record_id = models.CharField(_('Record ID'), max_length=50, blank=True, null=True, help_text=_("ID of the affected record, if applicable"))
+    record_name = models.CharField(_('Record Name'), max_length=255, blank=True, help_text=_("Human-readable name of the affected record"))
+    details = models.JSONField(_('Details'), default=dict, blank=True, help_text=_("JSON payload of changes (e.g., old vs new values)"))
+    ip_address = models.GenericIPAddressField(_('IP Address'), blank=True, null=True)
+    timestamp = models.DateTimeField(_('Timestamp'), auto_now_add=True)
+
+    class Meta:
+        verbose_name = _('Audit Log')
+        verbose_name_plural = _('Audit Logs')
+        ordering = ['-timestamp']
+
+    def __str__(self):
+        return f"{self.timestamp.strftime('%Y-%m-%d %H:%M:%S')} - {self.action} - {self.module} - {self.user}"
+

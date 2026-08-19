@@ -3,7 +3,7 @@ DRF serializers for the competition app.
 """
 from rest_framework import serializers
 from django.utils.translation import gettext_lazy as _
-from .models import Category, Registration, CompetitionSettings
+from .models import Category, Registration, CompetitionSettings, AuditLog
 from .validators import (
     validate_age_for_category,
     validate_id_document,
@@ -240,3 +240,8 @@ class RegistrationAdminSerializer(serializers.ModelSerializer):
         return getattr(obj.category, 'juz_count', None)
 
 
+class AuditLogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AuditLog
+        fields = '__all__'
+        read_only_fields = ['id', 'user', 'action', 'module', 'record_id', 'record_name', 'details', 'ip_address', 'timestamp']

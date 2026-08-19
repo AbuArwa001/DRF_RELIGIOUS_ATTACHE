@@ -8,13 +8,14 @@ from rest_framework.views import APIView
 from django.conf import settings as django_settings
 from botocore.config import Config as BotocoreConfig
 
-from .models import Category, Registration, CompetitionSettings
+from .models import Category, Registration, CompetitionSettings, AuditLog
 from .serializers import (
     CategorySerializer,
     CompetitionInfoSerializer,
     CompetitionInfoAdminSerializer,
     RegistrationCreateSerializer,
     RegistrationAdminSerializer,
+    AuditLogSerializer,
 )
 from .permissions import IsAdminUser
 from .emails import (
@@ -95,6 +96,15 @@ class RegistrationViewSet(
             # Invalidate public competition info cache to update stats instantly
             from django.core.cache import cache
             cache.delete('competition_info_public')
+            
+            AuditLog.objects.create(
+                action='CREATE',
+                module='Registration',
+                record_id=instance.id,
+                record_name=instance.full_name,
+                ip_address=request.META.get('REMOTE_ADDR'),
+                details={"message": "New registration submitted publicly"}
+            )
             
             return Response(
                 RegistrationCreateSerializer(instance).data,
@@ -178,6 +188,16 @@ class RegistrationViewSet(
             elif updated_instance.status in ['rejected', 'approved'] and old_status != updated_instance.status:
                 email_sent = send_status_update_email(updated_instance)
 
+        AuditLog.objects.create(
+            user=request.user.username if request.user and request.user.is_authenticated else None,
+            action='UPDATE',
+            module='Registration',
+            record_id=updated_instance.id,
+            record_name=updated_instance.full_name,
+            ip_address=request.META.get('REMOTE_ADDR'),
+            details={"changed_fields": changed_fields, "reason": reason}
+        )
+
         response_data = serializer.data
         response_data['email_sent'] = email_sent
         return Response(response_data)
@@ -185,7 +205,18 @@ class RegistrationViewSet(
     def destroy(self, request, *args, **kwargs):
         """Delete a registration entry."""
         instance = self.get_object()
+        record_name = instance.full_name
         instance.delete()
+        
+        AuditLog.objects.create(
+            user=request.user.username if request.user and request.user.is_authenticated else None,
+            action='DELETE',
+            module='Registration',
+            record_name=record_name,
+            ip_address=request.META.get('REMOTE_ADDR'),
+            details={"message": "Registration was deleted"}
+        )
+        
         return Response(
             {'detail': 'Registration deleted successfully.'},
             status=status.HTTP_204_NO_CONTENT,
@@ -206,6 +237,22 @@ class RegistrationViewSet(
         updated_instance = serializer.save()
         if updated_instance.status in ['rejected', 'approved'] and old_status != updated_instance.status:
             send_status_update_email(updated_instance)
+            
+        AuditLog.objects.create(
+            user=request.user.username if request.user and request.user.is_authenticated else None,
+            action='UPDATE',
+            module='Registration',
+            record_id=updated_instance.id,
+            record_name=updated_instance.full_name,
+            ip_address=request.META.get('REMOTE_ADDR'),
+            details={
+                "changed_fields": {
+                    "status": {"old": old_status, "new": updated_instance.status},
+                },
+                "notes_updated": "reviewer_notes" in data
+            }
+        )
+            
         return Response(serializer.data)
 
     @action(detail=True, methods=['post', 'patch'], permission_classes=[IsAdminUser], url_path='change_category')
@@ -255,6 +302,21 @@ class RegistrationViewSet(
                 new_category_name=new_category.name_en,
                 reason=reason,
             )
+
+        AuditLog.objects.create(
+            user=request.user.username if request.user and request.user.is_authenticated else None,
+            action='UPDATE',
+            module='Registration',
+            record_id=registration.id,
+            record_name=registration.full_name,
+            ip_address=request.META.get('REMOTE_ADDR'),
+            details={
+                "changed_fields": {
+                    "category": {"old": old_category_name, "new": new_category.name_en}
+                },
+                "reason": reason
+            }
+        )
 
         serializer = RegistrationAdminSerializer(registration)
         return Response({
@@ -964,3 +1026,16 @@ class CompetitionInfoView(APIView):
         from django.core.cache import cache
         cache.delete('competition_info_public')
         return Response(serializer.data)
+
+
+class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    GET /api/v1/logs/ — list all audit logs
+    GET /api/v1/logs/{id}/ — retrieve a specific audit log
+    Admin only.
+    """
+    queryset = AuditLog.objects.all()
+    serializer_class = AuditLogSerializer
+    permission_classes = [IsAdminUser]
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['action', 'module', 'record_name', 'user']

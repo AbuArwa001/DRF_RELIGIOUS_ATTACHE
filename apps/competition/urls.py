@@ -3,11 +3,12 @@ URL routing for the competition app using DRF routers.
 """
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import CategoryViewSet, RegistrationViewSet, CompetitionInfoView
+from .views import CategoryViewSet, RegistrationViewSet, CompetitionInfoView, AuditLogViewSet
 
 router = DefaultRouter()
 router.register(r'categories', CategoryViewSet, basename='category')
 router.register(r'registrations', RegistrationViewSet, basename='registration')
+router.register(r'logs', AuditLogViewSet, basename='auditlog')
 
 urlpatterns = [
     path('', include(router.urls)),
