@@ -520,6 +520,583 @@ def generate_registration_pdf(reg, logo_data_uri=None):
     return merged_pdf_buffer.getvalue()
 
 
+def generate_comprehensive_analytics_workbook(registrations, pivot='timeline'):
+    """
+    Generates an executive, multi-sheet analytical Excel workbook featuring:
+    1. Executive Dashboard with KPI cards, summary tables, and native Excel charts
+    2. Time-Series Matrix tracking registrations through time for all 7 counties
+    3. County-by-Category Cross-tabulation Matrix
+    4. Power BI-ready Fact Table (Fact_Registrations / Table_Registrations)
+    5. Power BI Dimension Tables (Dim_Counties, Dim_Categories, Dim_Calendar)
+    """
+    import io
+    import xlsxwriter
+    from datetime import datetime, timedelta, date
+
+    output = io.BytesIO()
+    workbook = xlsxwriter.Workbook(output, {'in_memory': True, 'remove_timezone': True})
+
+    # Color Palette & Styles
+    fmt_title = workbook.add_format({
+        'bold': True, 'font_size': 14, 'bg_color': '#0E7A4A', 'font_color': '#FFFFFF',
+        'align': 'left', 'valign': 'vcenter', 'border': 1
+    })
+    fmt_subtitle = workbook.add_format({
+        'italic': True, 'font_size': 9, 'bg_color': '#043823', 'font_color': '#F0D97A',
+        'align': 'left', 'valign': 'vcenter'
+    })
+    fmt_section_hdr = workbook.add_format({
+        'bold': True, 'font_size': 10, 'bg_color': '#0E7A4A', 'font_color': '#FFFFFF',
+        'align': 'center', 'valign': 'vcenter', 'border': 1
+    })
+    fmt_kpi_label = workbook.add_format({
+        'bold': True, 'font_size': 8, 'bg_color': '#F8FAFC', 'font_color': '#64748B',
+        'align': 'center', 'valign': 'vcenter', 'border': 1
+    })
+    fmt_kpi_val = workbook.add_format({
+        'bold': True, 'font_size': 16, 'bg_color': '#FFFFFF', 'font_color': '#0E7A4A',
+        'align': 'center', 'valign': 'vcenter', 'border': 1
+    })
+    fmt_table_hdr = workbook.add_format({
+        'bold': True, 'font_size': 9, 'bg_color': '#1E293B', 'font_color': '#FFFFFF',
+        'align': 'center', 'valign': 'vcenter', 'border': 1
+    })
+    fmt_cell = workbook.add_format({'font_size': 9, 'valign': 'vcenter', 'border': 1})
+    fmt_cell_center = workbook.add_format({'font_size': 9, 'align': 'center', 'valign': 'vcenter', 'border': 1})
+    fmt_cell_num = workbook.add_format({'font_size': 9, 'align': 'right', 'valign': 'vcenter', 'num_format': '#,##0', 'border': 1})
+    fmt_cell_pct = workbook.add_format({'font_size': 9, 'align': 'right', 'valign': 'vcenter', 'num_format': '0.0%', 'border': 1})
+    fmt_cell_curr = workbook.add_format({'font_size': 9, 'align': 'right', 'valign': 'vcenter', 'num_format': 'SAR #,##0', 'border': 1})
+    fmt_total = workbook.add_format({'bold': True, 'font_size': 9, 'bg_color': '#E2E8F0', 'align': 'right', 'num_format': '#,##0', 'border': 1})
+    fmt_total_pct = workbook.add_format({'bold': True, 'font_size': 9, 'bg_color': '#E2E8F0', 'align': 'right', 'num_format': '0.0%', 'border': 1})
+    fmt_total_lbl = workbook.add_format({'bold': True, 'font_size': 9, 'bg_color': '#E2E8F0', 'align': 'left', 'border': 1})
+    fmt_date = workbook.add_format({'font_size': 9, 'align': 'center', 'valign': 'vcenter', 'num_format': 'yyyy-mm-dd', 'border': 1})
+
+    # Standard 7 Counties Configuration
+    SEVEN_COUNTIES = [
+        {'name': 'Nairobi', 'center': 'Jamia Mosque', 'region': 'Nairobi', 'code': 'NBO'},
+        {'name': 'Mombasa', 'center': 'Masjid Bilal', 'region': 'Coast', 'code': 'MSA'},
+        {'name': 'Garissa', 'center': 'Masjid Andalus', 'region': 'North Eastern', 'code': 'GAR'},
+        {'name': 'Nakuru', 'center': 'Jamia Mosque', 'region': 'Rift Valley', 'code': 'NAK'},
+        {'name': 'Isiolo', 'center': 'Jamia Mosque', 'region': 'Eastern', 'code': 'ISL'},
+        {'name': 'Mandera', 'center': 'Jamia Mosque', 'region': 'North Eastern', 'code': 'MAN'},
+        {'name': 'Wajir', 'center': 'Masjidul-Falah', 'region': 'North Eastern', 'code': 'WAJ'},
+    ]
+    county_names = [c['name'] for c in SEVEN_COUNTIES]
+    county_center_map = {c['name']: c['center'] for c in SEVEN_COUNTIES}
+    county_region_map = {c['name']: c['region'] for c in SEVEN_COUNTIES}
+    county_code_map = {c['name']: c['code'] for c in SEVEN_COUNTIES}
+
+    reg_list = list(registrations.select_related('category').order_by('submitted_at'))
+    total_regs = len(reg_list)
+    approved_count = sum(1 for r in reg_list if r.status == 'approved')
+    pending_count = sum(1 for r in reg_list if r.status == 'pending')
+    rejected_count = sum(1 for r in reg_list if r.status == 'rejected')
+    avg_age = round(sum((r.age or 0) for r in reg_list) / max(1, total_regs), 1) if total_regs > 0 else 0
+
+    # Date range for time series
+    if reg_list:
+        min_date = min(r.submitted_at.date() for r in reg_list)
+        max_date = max(r.submitted_at.date() for r in reg_list)
+    else:
+        min_date = date.today() - timedelta(days=14)
+        max_date = date.today()
+
+    all_dates = []
+    curr = min_date
+    while curr <= max_date:
+        all_dates.append(curr)
+        curr += timedelta(days=1)
+
+    daily_county_counts = {d: {c: 0 for c in county_names + ['Other']} for d in all_dates}
+    for r in reg_list:
+        sub_d = r.submitted_at.date()
+        if sub_d in daily_county_counts:
+            c_name = r.county.strip() if r.county else 'Other'
+            if c_name not in county_names:
+                c_name = 'Other'
+            daily_county_counts[sub_d][c_name] += 1
+
+    peak_day_str = 'N/A'
+    peak_day_count = 0
+    for d, c_dict in daily_county_counts.items():
+        day_tot = sum(c_dict.values())
+        if day_tot > peak_day_count:
+            peak_day_count = day_tot
+            peak_day_str = f"{d.strftime('%d %b')} ({day_tot})"
+
+    # ──────────────────────────────────────────────────────────────────────
+    # SHEET 1: EXECUTIVE DASHBOARD
+    # ──────────────────────────────────────────────────────────────────────
+    dash = workbook.add_worksheet('Executive Dashboard')
+    dash.set_tab_color('#0E7A4A')
+    dash.set_column('A:A', 20)
+    dash.set_column('B:B', 20)
+    dash.set_column('C:C', 16)
+    dash.set_column('D:D', 14)
+    dash.set_column('E:E', 12)
+    dash.set_column('F:F', 12)
+    dash.set_column('G:G', 12)
+    dash.set_column('H:H', 12)
+    dash.set_column('I:I', 3)
+    dash.set_column('J:Q', 15)
+
+    # Title Banner
+    dash.merge_range('A1:G1', 'SAUDI EMBASSY · RELIGIOUS ATTACHÉ — QURAN COMPETITION 2026', fmt_title)
+    dash.merge_range('A2:G2', 'Official 7-County Time-Series & Power BI Analytical Intelligence Dashboard', fmt_subtitle)
+
+    # KPI Summary Cards (Rows 4-5)
+    dash.write('A4', 'TOTAL CANDIDATES', fmt_kpi_label)
+    dash.write('A5', total_regs, fmt_kpi_val)
+    dash.write('B4', 'APPROVED', fmt_kpi_label)
+    dash.write('B5', approved_count, fmt_kpi_val)
+    dash.write('C4', 'PENDING REVIEW', fmt_kpi_label)
+    dash.write('C5', pending_count, fmt_kpi_val)
+    dash.write('D4', 'ACTIVE COUNTIES', fmt_kpi_label)
+    dash.write('D5', '7 / 7', fmt_kpi_val)
+    dash.write('E4', 'AVG APPLICANT AGE', fmt_kpi_label)
+    dash.write('E5', f"{avg_age} Yrs", fmt_kpi_val)
+    dash.merge_range('F4:G4', 'PEAK DAY VOLUME', fmt_kpi_label)
+    dash.merge_range('F5:G5', peak_day_str if peak_day_count > 0 else '—', fmt_kpi_val)
+
+    # Table 1: County Breakdown Table
+    dash.merge_range('A7:G7', '7 COUNTIES PERFORMANCE & APPLICATION STATUS BREAKDOWN', fmt_section_hdr)
+    county_headers = ['County', 'Examination Center', 'Region', 'Total Applicants', 'Approved', 'Pending', '% Share']
+    for c_idx, h in enumerate(county_headers):
+        dash.write(7, c_idx, h, fmt_table_hdr)
+
+    county_counts = {c: {'total': 0, 'approved': 0, 'pending': 0, 'rejected': 0} for c in county_names + ['Other']}
+    for r in reg_list:
+        c_name = r.county.strip() if r.county else 'Other'
+        if c_name not in county_names:
+            c_name = 'Other'
+        county_counts[c_name]['total'] += 1
+        if r.status in county_counts[c_name]:
+            county_counts[c_name][r.status] += 1
+
+    r_idx = 8
+    for sc in SEVEN_COUNTIES:
+        c_name = sc['name']
+        data = county_counts[c_name]
+        dash.write(r_idx, 0, c_name, fmt_cell)
+        dash.write(r_idx, 1, sc['center'], fmt_cell)
+        dash.write(r_idx, 2, sc['region'], fmt_cell_center)
+        dash.write(r_idx, 3, data['total'], fmt_cell_num)
+        dash.write(r_idx, 4, data['approved'], fmt_cell_num)
+        dash.write(r_idx, 5, data['pending'], fmt_cell_num)
+        pct = (data['total'] / total_regs) if total_regs > 0 else 0
+        dash.write(r_idx, 6, pct, fmt_cell_pct)
+        r_idx += 1
+
+    # Total Row for County Table
+    dash.write(r_idx, 0, 'Total (7 Counties)', fmt_total_lbl)
+    dash.write(r_idx, 1, '—', fmt_total)
+    dash.write(r_idx, 2, '—', fmt_total)
+    dash.write_formula(r_idx, 3, f'=SUM(D9:D{r_idx})', fmt_total)
+    dash.write_formula(r_idx, 4, f'=SUM(E9:E{r_idx})', fmt_total)
+    dash.write_formula(r_idx, 5, f'=SUM(F9:F{r_idx})', fmt_total)
+    dash.write(r_idx, 6, 1.0, fmt_total_pct)
+
+    # Table 2: Category Breakdown Table
+    cat_start_row = r_idx + 3
+    dash.merge_range(cat_start_row, 0, cat_start_row, 6, 'MEMORIZATION CATEGORY DISTRIBUTION & PRIZES', fmt_section_hdr)
+    cat_headers = ['Category Name', 'Juz Count', 'Max Age', 'Prize (SAR)', 'Total Candidates', 'Approved', '% Share']
+    for c_idx, h in enumerate(cat_headers):
+        dash.write(cat_start_row + 1, c_idx, h, fmt_table_hdr)
+
+    from .models import Category
+    categories = list(Category.objects.all().order_by('order'))
+    cat_row = cat_start_row + 2
+    for cat in categories:
+        cat_regs = [r for r in reg_list if r.category_id == cat.id]
+        cat_tot = len(cat_regs)
+        cat_app = sum(1 for r in cat_regs if r.status == 'approved')
+        pct = (cat_tot / total_regs) if total_regs > 0 else 0
+        dash.write(cat_row, 0, cat.name_en, fmt_cell)
+        dash.write(cat_row, 1, f"{cat.juz_count} Juz'", fmt_cell_center)
+        dash.write(cat_row, 2, f"≤ {cat.max_age} Yrs", fmt_cell_center)
+        dash.write(cat_row, 3, cat.prize_sar, fmt_cell_curr)
+        dash.write(cat_row, 4, cat_tot, fmt_cell_num)
+        dash.write(cat_row, 5, cat_app, fmt_cell_num)
+        dash.write(cat_row, 6, pct, fmt_cell_pct)
+        cat_row += 1
+
+    # Total Row for Category Table
+    dash.write(cat_row, 0, 'Total', fmt_total_lbl)
+    dash.write(cat_row, 1, '—', fmt_total)
+    dash.write(cat_row, 2, '—', fmt_total)
+    dash.write(cat_row, 3, '—', fmt_total)
+    dash.write_formula(cat_row, 4, f'=SUM(E{cat_start_row+3}:E{cat_row})', fmt_total)
+    dash.write_formula(cat_row, 5, f'=SUM(F{cat_start_row+3}:F{cat_row})', fmt_total)
+    dash.write(cat_row, 6, 1.0, fmt_total_pct)
+
+    # ──────────────────────────────────────────────────────────────────────
+    # SHEET 2: TIMELINE BY COUNTY (TIME-SERIES MATRIX)
+    # ──────────────────────────────────────────────────────────────────────
+    tl_sheet = workbook.add_worksheet('Timeline_By_County')
+    tl_sheet.set_tab_color('#3B82F6')
+    tl_sheet.set_column('A:A', 14)
+    tl_sheet.set_column('B:B', 14)
+    tl_sheet.set_column('C:I', 13)
+    tl_sheet.set_column('J:J', 14)
+    tl_sheet.set_column('K:K', 14)
+    tl_sheet.set_column('L:L', 16)
+
+    tl_headers = [
+        'Registration Date', 'Day of Week', 'Nairobi', 'Mombasa', 'Garissa',
+        'Nakuru', 'Isiolo', 'Mandera', 'Wajir', 'Other Counties', 'Daily Total', 'Cumulative Total'
+    ]
+    for c_idx, h in enumerate(tl_headers):
+        tl_sheet.write(0, c_idx, h, fmt_table_hdr)
+
+    t_row = 1
+    running_cum = 0
+    for d in all_dates:
+        tl_sheet.write(t_row, 0, d.strftime('%Y-%m-%d'), fmt_date)
+        tl_sheet.write(t_row, 1, d.strftime('%A'), fmt_cell_center)
+        day_tot = 0
+        for col_i, c_name in enumerate(county_names, start=2):
+            cnt = daily_county_counts[d].get(c_name, 0)
+            tl_sheet.write(t_row, col_i, cnt, fmt_cell_num)
+            day_tot += cnt
+        other_cnt = daily_county_counts[d].get('Other', 0)
+        tl_sheet.write(t_row, 9, other_cnt, fmt_cell_num)
+        day_tot += other_cnt
+
+        running_cum += day_tot
+        tl_sheet.write(t_row, 10, day_tot, fmt_cell_num)
+        tl_sheet.write(t_row, 11, running_cum, fmt_cell_num)
+        t_row += 1
+
+    # Total Row for Timeline
+    tl_sheet.write(t_row, 0, 'Total', fmt_total_lbl)
+    tl_sheet.write(t_row, 1, '—', fmt_total)
+    for c_i in range(2, 11):
+        col_letter = chr(ord('A') + c_i)
+        tl_sheet.write_formula(t_row, c_i, f'=SUM({col_letter}2:{col_letter}{t_row})', fmt_total)
+    tl_sheet.write_formula(t_row, 11, f'=L{t_row}', fmt_total)
+
+    # ──────────────────────────────────────────────────────────────────────
+    # DASHBOARD CHARTS (INSERTED ON DASHBOARD SHEET)
+    # ──────────────────────────────────────────────────────────────────────
+    chart_timeline = workbook.add_chart({'type': 'line'})
+    chart_colors = ['#0E7A4A', '#2563EB', '#D97706', '#9333EA', '#DC2626', '#0891B2', '#4F46E5']
+    for idx, c_name in enumerate(county_names):
+        col_idx = 2 + idx
+        chart_timeline.add_series({
+            'name': ['Timeline_By_County', 0, col_idx],
+            'categories': ['Timeline_By_County', 1, 0, max(1, t_row - 1), 0],
+            'values': ['Timeline_By_County', 1, col_idx, max(1, t_row - 1), col_idx],
+            'line': {'color': chart_colors[idx % len(chart_colors)], 'width': 2.25},
+            'smooth': True,
+        })
+    chart_timeline.set_title({'name': 'Registration Surge Over Time (All 7 Counties)'})
+    chart_timeline.set_x_axis({'name': 'Date', 'text_axis': True, 'label_position': 'low'})
+    chart_timeline.set_y_axis({'name': 'Candidates Registered', 'major_gridlines': {'visible': True}})
+    chart_timeline.set_size({'width': 780, 'height': 380})
+    chart_timeline.set_style(10)
+    dash.insert_chart('J2', chart_timeline)
+
+    chart_county = workbook.add_chart({'type': 'column'})
+    chart_county.add_series({
+        'name': 'Total Applicants',
+        'categories': ['Executive Dashboard', 8, 0, 8 + len(SEVEN_COUNTIES) - 1, 0],
+        'values': ['Executive Dashboard', 8, 3, 8 + len(SEVEN_COUNTIES) - 1, 3],
+        'fill': {'color': '#0E7A4A'},
+        'data_labels': {'value': True, 'font': {'bold': True}},
+    })
+    chart_county.set_title({'name': 'Total Registrations by County'})
+    chart_county.set_y_axis({'name': 'Candidate Count', 'major_gridlines': {'visible': True}})
+    chart_county.set_size({'width': 480, 'height': 290})
+    chart_county.set_legend({'none': True})
+    chart_county.set_style(10)
+    dash.insert_chart('J22', chart_county)
+
+    chart_cat = workbook.add_chart({'type': 'doughnut'})
+    chart_cat.add_series({
+        'name': 'Memorization Categories',
+        'categories': ['Executive Dashboard', cat_start_row + 2, 0, cat_row - 1, 0],
+        'values': ['Executive Dashboard', cat_start_row + 2, 4, cat_row - 1, 4],
+        'data_labels': {'percentage': True, 'category': True, 'leader_lines': True},
+    })
+    chart_cat.set_title({'name': 'Memorization Category Share'})
+    chart_cat.set_size({'width': 480, 'height': 290})
+    chart_cat.set_style(10)
+    dash.insert_chart('A38', chart_cat)
+
+    chart_status = workbook.add_chart({'type': 'column', 'subtype': 'stacked'})
+    chart_status.add_series({
+        'name': 'Approved',
+        'categories': ['Executive Dashboard', 8, 0, 8 + len(SEVEN_COUNTIES) - 1, 0],
+        'values': ['Executive Dashboard', 8, 4, 8 + len(SEVEN_COUNTIES) - 1, 4],
+        'fill': {'color': '#059669'},
+    })
+    chart_status.add_series({
+        'name': 'Pending',
+        'categories': ['Executive Dashboard', 8, 0, 8 + len(SEVEN_COUNTIES) - 1, 0],
+        'values': ['Executive Dashboard', 8, 5, 8 + len(SEVEN_COUNTIES) - 1, 5],
+        'fill': {'color': '#D97706'},
+    })
+    chart_status.set_title({'name': 'Approval & Review Status by County'})
+    chart_status.set_size({'width': 500, 'height': 290})
+    chart_status.set_style(10)
+    dash.insert_chart('J38', chart_status)
+
+    # ──────────────────────────────────────────────────────────────────────
+    # SHEET 3: COUNTY X CATEGORY MATRIX
+    # ──────────────────────────────────────────────────────────────────────
+    mat_sheet = workbook.add_worksheet('County_Category_Matrix')
+    mat_sheet.set_tab_color('#8B5CF6')
+    mat_sheet.set_column('A:A', 22)
+    mat_sheet.set_column('B:G', 18)
+
+    mat_sheet.merge_range('A1:G1', '7 COUNTIES × MEMORIZATION CATEGORIES CROSS-TABULATION', fmt_title)
+    mat_headers = ['County'] + [cat.name_en for cat in categories] + ['Total', '% Share']
+    for c_i, h in enumerate(mat_headers):
+        mat_sheet.write(1, c_i, h, fmt_table_hdr)
+
+    m_row = 2
+    for sc in SEVEN_COUNTIES:
+        c_name = sc['name']
+        mat_sheet.write(m_row, 0, c_name, fmt_cell)
+        row_tot = 0
+        for cat_i, cat in enumerate(categories, start=1):
+            cnt = sum(1 for r in reg_list if r.category_id == cat.id and (r.county or '').strip() == c_name)
+            mat_sheet.write(m_row, cat_i, cnt, fmt_cell_num)
+            row_tot += cnt
+        mat_sheet.write(m_row, len(categories) + 1, row_tot, fmt_cell_num)
+        pct = (row_tot / total_regs) if total_regs > 0 else 0
+        mat_sheet.write(m_row, len(categories) + 2, pct, fmt_cell_pct)
+        m_row += 1
+
+    # Total Row for Matrix
+    mat_sheet.write(m_row, 0, 'Total', fmt_total_lbl)
+    for cat_i in range(1, len(categories) + 2):
+        col_letter = chr(ord('A') + cat_i)
+        mat_sheet.write_formula(m_row, cat_i, f'=SUM({col_letter}3:{col_letter}{m_row})', fmt_total)
+    mat_sheet.write(m_row, len(categories) + 2, 1.0, fmt_total_pct)
+
+    # ──────────────────────────────────────────────────────────────────────
+    # SHEET 4: FACT_REGISTRATIONS (POWER BI FLAT STAR-SCHEMA FACT TABLE)
+    # ──────────────────────────────────────────────────────────────────────
+    fact_sheet = workbook.add_worksheet('Fact_Registrations')
+    fact_sheet.set_tab_color('#F59E0B')
+
+    fact_cols = [
+        {'header': 'Registration_ID'},
+        {'header': 'Reference_Number'},
+        {'header': 'Full_Name'},
+        {'header': 'Date_Of_Birth'},
+        {'header': 'Age'},
+        {'header': 'Age_Group'},
+        {'header': 'Nationality'},
+        {'header': 'National_ID_Number'},
+        {'header': 'Current_Residence'},
+        {'header': 'County'},
+        {'header': 'Examination_Center'},
+        {'header': 'County_Region'},
+        {'header': 'County_Code'},
+        {'header': 'Nominating_Institution'},
+        {'header': 'Phone_Number'},
+        {'header': 'Alternative_Phone'},
+        {'header': 'Email'},
+        {'header': 'Category_ID'},
+        {'header': 'Category_Name'},
+        {'header': 'Juz_Count'},
+        {'header': 'Prize_SAR'},
+        {'header': 'Status'},
+        {'header': 'Submitted_Date'},
+        {'header': 'Submitted_Time'},
+        {'header': 'Submitted_Timestamp'},
+        {'header': 'Year'},
+        {'header': 'Month_Name'},
+        {'header': 'Month_Number'},
+        {'header': 'Week_Number'},
+        {'header': 'Day_Of_Month'},
+        {'header': 'Day_Of_Week'},
+        {'header': 'Day_Of_Week_Number'},
+        {'header': 'Hour_Of_Day'},
+        {'header': 'Has_Passport_Photo'},
+        {'header': 'Has_ID_Document'},
+        {'header': 'Reviewer_Notes'},
+    ]
+
+    fact_data = []
+    for reg in reg_list:
+        sub_dt = reg.submitted_at
+        c_name = reg.county.strip() if reg.county else 'Other'
+        center = county_center_map.get(c_name, 'Other Center')
+        region = county_region_map.get(c_name, 'Other Region')
+        code = county_code_map.get(c_name, 'OTH')
+
+        age = reg.age or 0
+        if age < 15:
+            age_group = '< 15 Years'
+        elif age <= 18:
+            age_group = '15-18 Years'
+        elif age <= 22:
+            age_group = '19-22 Years'
+        else:
+            age_group = '23+ Years'
+
+        fact_data.append([
+            reg.id,
+            f"REF-{reg.id:05d}",
+            reg.full_name,
+            reg.date_of_birth.strftime('%Y-%m-%d') if reg.date_of_birth else '',
+            age,
+            age_group,
+            reg.nationality or 'Kenyan',
+            reg.national_id_number or '',
+            reg.current_residence or '',
+            c_name,
+            center,
+            region,
+            code,
+            reg.nominating_institution or '',
+            reg.phone_number or '',
+            reg.alternative_phone or '',
+            reg.email or '',
+            reg.category_id or 0,
+            reg.category.name_en if reg.category else 'Unassigned',
+            reg.category.juz_count if reg.category else 0,
+            reg.category.prize_sar if reg.category else 0,
+            reg.status.upper(),
+            sub_dt.strftime('%Y-%m-%d'),
+            sub_dt.strftime('%H:%M:%S'),
+            sub_dt.strftime('%Y-%m-%d %H:%M:%S'),
+            sub_dt.year,
+            sub_dt.strftime('%B'),
+            sub_dt.month,
+            int(sub_dt.strftime('%U')) + 1,
+            sub_dt.day,
+            sub_dt.strftime('%A'),
+            sub_dt.isoweekday(),
+            sub_dt.hour,
+            'Yes' if reg.passport_photo else 'No',
+            'Yes' if reg.id_document else 'No',
+            reg.reviewer_notes or '',
+        ])
+
+    num_rows = max(1, len(fact_data))
+    num_cols = len(fact_cols)
+    fact_sheet.set_column(0, num_cols - 1, 16)
+
+    fact_sheet.add_table(0, 0, num_rows, num_cols - 1, {
+        'name': 'Table_Registrations',
+        'data': fact_data if fact_data else [[None] * num_cols],
+        'columns': fact_cols,
+        'style': 'TableStyleMedium9',
+    })
+
+    # ──────────────────────────────────────────────────────────────────────
+    # SHEET 5: DIM_COUNTIES (POWER BI DIMENSION)
+    # ──────────────────────────────────────────────────────────────────────
+    dim_county_sheet = workbook.add_worksheet('Dim_Counties')
+    dim_county_sheet.set_tab_color('#10B981')
+    dim_county_cols = [
+        {'header': 'County_Name'},
+        {'header': 'Examination_Center'},
+        {'header': 'Region'},
+        {'header': 'County_Code'},
+        {'header': 'Total_Registered'},
+        {'header': 'Approved_Count'},
+        {'header': 'Pending_Count'},
+        {'header': 'Rejected_Count'},
+    ]
+    dim_county_data = []
+    for sc in SEVEN_COUNTIES:
+        c_name = sc['name']
+        data = county_counts[c_name]
+        dim_county_data.append([
+            c_name, sc['center'], sc['region'], sc['code'],
+            data['total'], data['approved'], data['pending'], data['rejected']
+        ])
+
+    dim_county_sheet.set_column(0, len(dim_county_cols) - 1, 18)
+    dim_county_sheet.add_table(0, 0, len(dim_county_data), len(dim_county_cols) - 1, {
+        'name': 'Table_Counties',
+        'data': dim_county_data,
+        'columns': dim_county_cols,
+        'style': 'TableStyleMedium2',
+    })
+
+    # ──────────────────────────────────────────────────────────────────────
+    # SHEET 6: DIM_CATEGORIES (POWER BI DIMENSION)
+    # ──────────────────────────────────────────────────────────────────────
+    dim_cat_sheet = workbook.add_worksheet('Dim_Categories')
+    dim_cat_sheet.set_tab_color('#06B6D4')
+    dim_cat_cols = [
+        {'header': 'Category_ID'},
+        {'header': 'Category_Name'},
+        {'header': 'Juz_Count'},
+        {'header': 'Max_Age_Limit'},
+        {'header': 'Prize_SAR'},
+        {'header': 'Total_Candidates'},
+    ]
+    dim_cat_data = []
+    for cat in categories:
+        c_tot = sum(1 for r in reg_list if r.category_id == cat.id)
+        dim_cat_data.append([
+            cat.id, cat.name_en, cat.juz_count, cat.max_age, cat.prize_sar, c_tot
+        ])
+
+    dim_cat_sheet.set_column(0, len(dim_cat_cols) - 1, 18)
+    dim_cat_sheet.add_table(0, 0, max(1, len(dim_cat_data)), len(dim_cat_cols) - 1, {
+        'name': 'Table_Categories',
+        'data': dim_cat_data if dim_cat_data else [[None] * len(dim_cat_cols)],
+        'columns': dim_cat_cols,
+        'style': 'TableStyleMedium3',
+    })
+
+    # ──────────────────────────────────────────────────────────────────────
+    # SHEET 7: DIM_CALENDAR (POWER BI DATE DIMENSION)
+    # ──────────────────────────────────────────────────────────────────────
+    dim_cal_sheet = workbook.add_worksheet('Dim_Calendar')
+    dim_cal_sheet.set_tab_color('#6366F1')
+    dim_cal_cols = [
+        {'header': 'Date'},
+        {'header': 'Year'},
+        {'header': 'Quarter'},
+        {'header': 'Month_Number'},
+        {'header': 'Month_Name'},
+        {'header': 'Month_Year'},
+        {'header': 'Week_Number'},
+        {'header': 'Day_Of_Month'},
+        {'header': 'Day_Of_Week'},
+        {'header': 'Day_Of_Week_Number'},
+        {'header': 'Is_Weekend'},
+    ]
+    dim_cal_data = []
+    for d in all_dates:
+        quarter = f"Q{(d.month - 1) // 3 + 1}"
+        is_wknd = 'Yes' if d.isoweekday() in [6, 7] else 'No'
+        dim_cal_data.append([
+            d.strftime('%Y-%m-%d'),
+            d.year,
+            quarter,
+            d.month,
+            d.strftime('%B'),
+            d.strftime('%b %Y'),
+            int(d.strftime('%U')) + 1,
+            d.day,
+            d.strftime('%A'),
+            d.isoweekday(),
+            is_wknd
+        ])
+
+    dim_cal_sheet.set_column(0, len(dim_cal_cols) - 1, 16)
+    dim_cal_sheet.add_table(0, 0, max(1, len(dim_cal_data)), len(dim_cal_cols) - 1, {
+        'name': 'Table_Calendar',
+        'data': dim_cal_data,
+        'columns': dim_cal_cols,
+        'style': 'TableStyleMedium5',
+    })
+
+    workbook.close()
+    output.seek(0)
+    return output.getvalue()
+
+
 class RegistrationViewSet(
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
@@ -794,88 +1371,22 @@ class RegistrationViewSet(
     @action(detail=False, methods=['get'], permission_classes=[IsAdminUser], url_path='export_analysis')
     def export_analysis(self, request):
         """
-        GET /api/v1/registrations/export_analysis/?pivot=category|county|status
-        Generates an Excel file with pivot charts and raw data.
+        GET /api/v1/registrations/export_analysis/?pivot=timeline|county|category|status
+        Generates the comprehensive multi-sheet Excel workbook with Executive Dashboard,
+        7-County Time Series, Cross-Tabulation, and Power BI Fact/Dimension Tables.
         """
-        pivot = request.query_params.get('pivot', 'category').lower()
-        if pivot not in ['category', 'county', 'status']:
-            pivot = 'category'
-            
-        pivot_field = 'category__name_en' if pivot == 'category' else pivot
-        
+        from datetime import datetime
+        pivot = request.query_params.get('pivot', 'timeline').lower()
         registrations = self.get_queryset()
-        pivot_data = registrations.values(pivot_field).annotate(count=Count('id')).order_by('-count')
-        
-        output = io.BytesIO()
-        workbook = xlsxwriter.Workbook(output, {'in_memory': True})
-        
-        header_format = workbook.add_format({'bold': True, 'bg_color': '#0E7A4A', 'font_color': 'white'})
-        
-        # --- Sheet 1: Dashboard ---
-        dashboard_sheet = workbook.add_worksheet('Dashboard')
-        dashboard_sheet.set_column('A:A', 25)
-        dashboard_sheet.set_column('B:B', 15)
-        
-        dashboard_sheet.write('A1', f'Pivot by {pivot.capitalize()}', header_format)
-        dashboard_sheet.write('B1', 'Count', header_format)
-        
-        row = 1
-        for item in pivot_data:
-            label = item[pivot_field] or 'Unknown'
-            dashboard_sheet.write(row, 0, str(label))
-            dashboard_sheet.write(row, 1, item['count'])
-            row += 1
-            
-        chart = workbook.add_chart({'type': 'pie'})
-        chart.add_series({
-            'name': f'Registrations by {pivot.capitalize()}',
-            'categories': ['Dashboard', 1, 0, row - 1, 0],
-            'values': ['Dashboard', 1, 1, row - 1, 1],
-            'data_labels': {'value': True, 'percentage': True},
-        })
-        chart.set_title({'name': f'Registration Distribution ({pivot.capitalize()})'})
-        chart.set_style(10)
-        chart.set_size({'width': 600, 'height': 400})
-        dashboard_sheet.insert_chart('D2', chart)
-        
-        # --- Sheet 2: Raw Data ---
-        raw_sheet = workbook.add_worksheet('Raw Data')
-        columns = [
-            'ID', 'Full Name', 'Category', 'Age', 'County', 'Status', 
-            'Nominating Institution', 'Phone', 'Email', 'Submitted At'
-        ]
-        for col_num, column_title in enumerate(columns):
-            raw_sheet.write(0, col_num, column_title, header_format)
-            
-        raw_sheet.set_column('A:A', 10)
-        raw_sheet.set_column('B:B', 30)
-        raw_sheet.set_column('C:C', 20)
-        raw_sheet.set_column('E:E', 20)
-        raw_sheet.set_column('G:G', 30)
-        raw_sheet.set_column('H:J', 25)
-        
-        row = 1
-        for reg in registrations.select_related('category'):
-            raw_sheet.write(row, 0, f"REF-{reg.id:05d}")
-            raw_sheet.write(row, 1, reg.full_name)
-            raw_sheet.write(row, 2, reg.category.name_en if reg.category else 'N/A')
-            raw_sheet.write(row, 3, reg.age or 'N/A')
-            raw_sheet.write(row, 4, reg.county or 'N/A')
-            raw_sheet.write(row, 5, reg.status.upper())
-            raw_sheet.write(row, 6, reg.nominating_institution or 'N/A')
-            raw_sheet.write(row, 7, reg.phone_number or 'N/A')
-            raw_sheet.write(row, 8, reg.email or 'N/A')
-            raw_sheet.write(row, 9, reg.submitted_at.strftime('%Y-%m-%d %H:%M:%S'))
-            row += 1
-            
-        workbook.close()
-        output.seek(0)
-        
+
+        excel_bytes = generate_comprehensive_analytics_workbook(registrations, pivot=pivot)
+
+        filename = f"QuranComp2026_Analytics_7Counties_PowerBI_{datetime.now().strftime('%Y%m%d')}.xlsx"
         response = HttpResponse(
-            output.read(), 
+            excel_bytes,
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-        response['Content-Disposition'] = f'attachment; filename=Analytics_{pivot}.xlsx'
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
 
     @action(detail=False, methods=['get'], permission_classes=[], url_path='check_duplicate')
