@@ -23,4 +23,5 @@ s3transfer==0.19.2
 six==1.17.0
 sqlparse==0.5.5
 urllib3==2.7.0
+weasyprint==69.0
 xlsxwriter==3.2.9
