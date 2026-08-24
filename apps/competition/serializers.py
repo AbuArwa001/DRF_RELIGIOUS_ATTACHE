@@ -46,17 +46,17 @@ class CompetitionInfoSerializer(serializers.ModelSerializer):
 
     def get_county_stats(self, obj):
         from django.db.models import Count
-        qs = Registration.objects.filter(is_deleted=False).values('county').annotate(count=Count('id'))
+        qs = Registration.objects.filter(is_deleted=False).exclude(status=Registration.Status.REJECTED).values('county').annotate(count=Count('id'))
         return {item['county']: item['count'] for item in qs if item['county']}
 
     def get_category_stats(self, obj):
         from django.db.models import Count
-        qs = Registration.objects.filter(is_deleted=False).values('category').annotate(count=Count('id'))
+        qs = Registration.objects.filter(is_deleted=False).exclude(status=Registration.Status.REJECTED).values('category').annotate(count=Count('id'))
         return {item['category']: item['count'] for item in qs if item['category'] is not None}
 
     def get_category_county_stats(self, obj):
         from django.db.models import Count
-        qs = Registration.objects.filter(is_deleted=False).values('category', 'county').annotate(count=Count('id'))
+        qs = Registration.objects.filter(is_deleted=False).exclude(status=Registration.Status.REJECTED).values('category', 'county').annotate(count=Count('id'))
         stats = {}
         for item in qs:
             cat_id = item['category']
@@ -91,17 +91,17 @@ class CompetitionInfoAdminSerializer(serializers.ModelSerializer):
 
     def get_county_stats(self, obj):
         from django.db.models import Count
-        qs = Registration.objects.filter(is_deleted=False).values('county').annotate(count=Count('id'))
+        qs = Registration.objects.filter(is_deleted=False).exclude(status=Registration.Status.REJECTED).values('county').annotate(count=Count('id'))
         return {item['county']: item['count'] for item in qs if item['county']}
 
     def get_category_stats(self, obj):
         from django.db.models import Count
-        qs = Registration.objects.filter(is_deleted=False).values('category').annotate(count=Count('id'))
+        qs = Registration.objects.filter(is_deleted=False).exclude(status=Registration.Status.REJECTED).values('category').annotate(count=Count('id'))
         return {item['category']: item['count'] for item in qs if item['category'] is not None}
 
     def get_category_county_stats(self, obj):
         from django.db.models import Count
-        qs = Registration.objects.filter(is_deleted=False).values('category', 'county').annotate(count=Count('id'))
+        qs = Registration.objects.filter(is_deleted=False).exclude(status=Registration.Status.REJECTED).values('category', 'county').annotate(count=Count('id'))
         stats = {}
         for item in qs:
             cat_id = item['category']

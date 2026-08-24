@@ -10,3 +10,4 @@ staticfiles/
 static
 nginx.config
 
+PROJECT_SPECIFICATION_AND_REPLICATION_GUIDE.md

@@ -1784,15 +1784,10 @@ class CompetitionInfoView(APIView):
         return [IsAdminUser()]  # all writes require admin JWT
 
     def get(self, request):
-        """Return the current competition settings (public)."""
-        from django.core.cache import cache
-        data = cache.get('competition_info_public')
-        if not data:
-            settings = CompetitionSettings.load()
-            serializer = CompetitionInfoSerializer(settings)
-            data = serializer.data
-            cache.set('competition_info_public', data, 60 * 60 * 12)  # Cache for 12 hours (invalidated on new registration)
-        return Response(data)
+        """Return the current competition settings (public with real-time stats)."""
+        settings = CompetitionSettings.load()
+        serializer = CompetitionInfoSerializer(settings)
+        return Response(serializer.data)
 
     def put(self, request):
         """Full update — all fields must be supplied."""
