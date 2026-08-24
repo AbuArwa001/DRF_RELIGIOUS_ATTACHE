@@ -22,6 +22,7 @@ from .emails import (
     send_status_update_email,
     send_category_update_email,
     send_profile_update_email,
+    send_regret_email,
 )
 
 import io
@@ -1116,7 +1117,15 @@ class RegistrationViewSet(
     GET    /api/v1/registrations/{id}/photo_url/ — admin: get presigned S3 URL for passport photo
     GET    /api/v1/registrations/{id}/doc_url/   — admin: get presigned S3 URL for ID document
     """
-    queryset = Registration.objects.select_related('category').all()
+    def get_queryset(self):
+        qs = Registration.objects.select_related('category')
+        is_del = self.request.query_params.get('is_deleted', '').lower()
+        if is_del in ('true', '1'):
+            return qs.filter(is_deleted=True)
+        elif is_del in ('all', 'any'):
+            return qs.all()
+        return qs.filter(is_deleted=False)
+
     filter_backends = [filters.SearchFilter]
     search_fields = ['full_name', 'nominating_institution', 'phone_number', 'email', 'national_id_number']
 
@@ -1159,7 +1168,8 @@ class RegistrationViewSet(
     def update(self, request, *args, **kwargs):
         """Full or partial update — admin can edit all editable fields, including photo and details."""
         partial = kwargs.pop('partial', False)
-        instance = self.get_object()
+        # Use unfiltered queryset lookup to allow updating soft-deleted candidates too
+        instance = Registration.objects.select_related('category').get(pk=kwargs['pk'])
 
         # Snapshot old values
         old_status = instance.status
@@ -1246,24 +1256,247 @@ class RegistrationViewSet(
         return Response(response_data)
 
     def destroy(self, request, *args, **kwargs):
-        """Delete a registration entry."""
-        instance = self.get_object()
+        """
+        Delete a registration entry.
+        - By default, performs a Soft Delete (moves candidate to Deleted / Regret list).
+        - If query param ?permanent=true or body permanent: true is provided, permanently purges from DB.
+        """
+        instance = Registration.objects.get(pk=kwargs['pk'])
         record_name = instance.full_name
-        instance.delete()
-        
+        is_permanent = (
+            request.query_params.get('permanent', '').lower() in ('true', '1') or
+            request.data.get('permanent') is True
+        )
+        reason = (
+            request.query_params.get('reason') or
+            request.data.get('reason') or
+            request.data.get('deletion_reason') or
+            ''
+        ).strip()
+
+        from django.utils import timezone
+        from django.core.cache import cache
+
+        if is_permanent:
+            instance.delete()
+            cache.delete('competition_info_public')
+            AuditLog.objects.create(
+                user=request.user.username if request.user and request.user.is_authenticated else None,
+                action='DELETE',
+                module='Registration',
+                record_name=record_name,
+                ip_address=request.META.get('REMOTE_ADDR'),
+                details={"type": "permanent_delete", "message": f"Registration for {record_name} was permanently erased from database."}
+            )
+            return Response(
+                {'detail': 'Registration permanently erased from database.', 'permanent': True},
+                status=status.HTTP_200_OK,
+            )
+        else:
+            instance.is_deleted = True
+            instance.deleted_at = timezone.now()
+            if reason:
+                instance.deletion_reason = reason
+            instance.save(update_fields=['is_deleted', 'deleted_at', 'deletion_reason', 'updated_at'])
+            cache.delete('competition_info_public')
+
+            AuditLog.objects.create(
+                user=request.user.username if request.user and request.user.is_authenticated else None,
+                action='DELETE',
+                module='Registration',
+                record_id=instance.id,
+                record_name=record_name,
+                ip_address=request.META.get('REMOTE_ADDR'),
+                details={"type": "soft_delete", "reason": reason, "message": f"Registration for {record_name} was moved to deleted archive."}
+            )
+            return Response(
+                {'detail': 'Registration moved to deleted archive successfully.', 'permanent': False, 'id': instance.id},
+                status=status.HTTP_200_OK,
+            )
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser], url_path='restore')
+    def restore(self, request, pk=None):
+        """
+        POST /api/v1/registrations/{id}/restore/
+        Restores a soft-deleted candidate back to active registry.
+        """
+        registration = Registration.objects.get(pk=pk)
+        registration.is_deleted = False
+        registration.deleted_at = None
+        registration.save(update_fields=['is_deleted', 'deleted_at', 'updated_at'])
+
+        from django.core.cache import cache
+        cache.delete('competition_info_public')
+
         AuditLog.objects.create(
             user=request.user.username if request.user and request.user.is_authenticated else None,
-            action='DELETE',
+            action='UPDATE',
             module='Registration',
-            record_name=record_name,
+            record_id=registration.id,
+            record_name=registration.full_name,
             ip_address=request.META.get('REMOTE_ADDR'),
-            details={"message": "Registration was deleted"}
+            details={"type": "restore", "message": f"Registration {registration.full_name} restored to active list."}
         )
-        
-        return Response(
-            {'detail': 'Registration deleted successfully.'},
-            status=status.HTTP_204_NO_CONTENT,
+        return Response({'detail': f'Registration for {registration.full_name} has been restored successfully.', 'id': registration.id})
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAdminUser], url_path='bulk_restore')
+    def bulk_restore(self, request):
+        """
+        POST /api/v1/registrations/bulk_restore/
+        Body: {"ids": [1, 2, 3]}
+        """
+        ids = request.data.get('ids', [])
+        if isinstance(ids, str):
+            ids = [int(x.strip()) for x in ids.split(',') if x.strip().isdigit()]
+        if not ids or not isinstance(ids, list):
+            return Response({'error': 'Please provide a list of registration IDs.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        updated_count = Registration.objects.filter(id__in=ids, is_deleted=True).update(
+            is_deleted=False,
+            deleted_at=None,
         )
+        from django.core.cache import cache
+        cache.delete('competition_info_public')
+
+        AuditLog.objects.create(
+            user=request.user.username if request.user and request.user.is_authenticated else None,
+            action='UPDATE',
+            module='Registration',
+            ip_address=request.META.get('REMOTE_ADDR'),
+            details={"type": "bulk_restore", "ids": ids, "count": updated_count}
+        )
+        return Response({'detail': f'Successfully restored {updated_count} candidate registration(s).', 'restored_count': updated_count})
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAdminUser], url_path='bulk_delete')
+    def bulk_delete(self, request):
+        """
+        POST /api/v1/registrations/bulk_delete/
+        Body: {"ids": [1, 2, 3], "permanent": false, "reason": "Optional note"}
+        """
+        ids = request.data.get('ids', [])
+        if isinstance(ids, str):
+            ids = [int(x.strip()) for x in ids.split(',') if x.strip().isdigit()]
+        if not ids or not isinstance(ids, list):
+            return Response({'error': 'Please provide a list of registration IDs.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        is_permanent = request.data.get('permanent') is True
+        reason = (request.data.get('reason') or '').strip()
+        from django.utils import timezone
+        from django.core.cache import cache
+
+        if is_permanent:
+            deleted_count, _ = Registration.objects.filter(id__in=ids).delete()
+            cache.delete('competition_info_public')
+            AuditLog.objects.create(
+                user=request.user.username if request.user and request.user.is_authenticated else None,
+                action='DELETE',
+                module='Registration',
+                ip_address=request.META.get('REMOTE_ADDR'),
+                details={"type": "bulk_permanent_delete", "ids": ids, "count": deleted_count}
+            )
+            return Response({'detail': f'Permanently deleted {deleted_count} record(s).', 'permanent': True, 'count': deleted_count})
+        else:
+            updated_count = Registration.objects.filter(id__in=ids).update(
+                is_deleted=True,
+                deleted_at=timezone.now(),
+                deletion_reason=reason
+            )
+            cache.delete('competition_info_public')
+            AuditLog.objects.create(
+                user=request.user.username if request.user and request.user.is_authenticated else None,
+                action='DELETE',
+                module='Registration',
+                ip_address=request.META.get('REMOTE_ADDR'),
+                details={"type": "bulk_soft_delete", "ids": ids, "count": updated_count, "reason": reason}
+            )
+            return Response({'detail': f'Moved {updated_count} candidate(s) to deleted archive.', 'permanent': False, 'count': updated_count})
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser], url_path='send_regret_email')
+    def send_regret_email_action(self, request, pk=None):
+        """
+        POST /api/v1/registrations/{id}/send_regret_email/
+        Body: {"reason": "Optional custom note / reason"}
+        """
+        registration = Registration.objects.get(pk=pk)
+        reason = (request.data.get('reason') or '').strip()
+
+        sent = send_regret_email(registration=registration, custom_notes=reason)
+        if sent:
+            from django.utils import timezone
+            registration.regret_email_sent = True
+            registration.regret_email_sent_at = timezone.now()
+            registration.save(update_fields=['regret_email_sent', 'regret_email_sent_at', 'updated_at'])
+
+            AuditLog.objects.create(
+                user=request.user.username if request.user and request.user.is_authenticated else None,
+                action='UPDATE',
+                module='Registration',
+                record_id=registration.id,
+                record_name=registration.full_name,
+                ip_address=request.META.get('REMOTE_ADDR'),
+                details={"type": "regret_email_sent", "email": registration.email}
+            )
+            return Response({'detail': f'Regret email dispatched to {registration.email}.', 'email_sent': True})
+        else:
+            return Response({'error': f'Failed to send regret email to {registration.email}. Please verify email address.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAdminUser], url_path='bulk_send_regret_email')
+    def bulk_send_regret_email(self, request):
+        """
+        POST /api/v1/registrations/bulk_send_regret_email/
+        Body: {"ids": [1, 2, 3], "reason": "Optional custom note", "all_unsent": false}
+        """
+        ids = request.data.get('ids', [])
+        if isinstance(ids, str):
+            ids = [int(x.strip()) for x in ids.split(',') if x.strip().isdigit()]
+        all_unsent = request.data.get('all_unsent', False)
+        reason = (request.data.get('reason') or '').strip()
+
+        if all_unsent:
+            candidates = Registration.objects.filter(is_deleted=True, regret_email_sent=False)
+        elif ids and isinstance(ids, list):
+            candidates = Registration.objects.filter(id__in=ids)
+        else:
+            return Response({'error': 'Please specify candidate IDs or set all_unsent=True.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not candidates.exists():
+            return Response({'error': 'No matching deleted candidates found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        from django.utils import timezone
+        sent_count = 0
+        failed_count = 0
+        errors = []
+
+        for reg in candidates:
+            if not reg.email:
+                failed_count += 1
+                errors.append(f"{reg.full_name} (ID #{reg.id}): No email address.")
+                continue
+
+            success = send_regret_email(registration=reg, custom_notes=reason)
+            if success:
+                reg.regret_email_sent = True
+                reg.regret_email_sent_at = timezone.now()
+                reg.save(update_fields=['regret_email_sent', 'regret_email_sent_at', 'updated_at'])
+                sent_count += 1
+            else:
+                failed_count += 1
+                errors.append(f"{reg.full_name} ({reg.email}): Delivery error.")
+
+        AuditLog.objects.create(
+            user=request.user.username if request.user and request.user.is_authenticated else None,
+            action='UPDATE',
+            module='Registration',
+            ip_address=request.META.get('REMOTE_ADDR'),
+            details={"type": "bulk_regret_emails_sent", "sent_count": sent_count, "failed_count": failed_count}
+        )
+
+        return Response({
+            'detail': f'Bulk regret email process finished: {sent_count} sent successfully, {failed_count} failed.',
+            'sent_count': sent_count,
+            'failed_count': failed_count,
+            'errors': errors,
+        })
 
     @action(detail=True, methods=['patch'], permission_classes=[IsAdminUser])
     def review(self, request, pk=None):
@@ -1271,7 +1504,7 @@ class RegistrationViewSet(
         PATCH /api/v1/registrations/{id}/review/
         Allows updating status and reviewer_notes only.
         """
-        registration = self.get_object()
+        registration = Registration.objects.get(pk=pk)
         old_status = registration.status
         allowed_fields = {'status', 'reviewer_notes'}
         data = {k: v for k, v in request.data.items() if k in allowed_fields}
@@ -1309,7 +1542,7 @@ class RegistrationViewSet(
         }
         Updates the participant's memorization category and sends an email notification.
         """
-        registration = self.get_object()
+        registration = Registration.objects.get(pk=pk)
         category_id = request.data.get('category') or request.data.get('category_id')
         if not category_id:
             return Response({'error': 'Please provide a valid category ID.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -1397,9 +1630,8 @@ class RegistrationViewSet(
         """
         nat_id = (request.query_params.get('national_id') or '').strip()
         phone = (request.query_params.get('phone') or '').strip()
-        # email check removed
 
-        active_regs = Registration.objects.exclude(status=Registration.Status.REJECTED)
+        active_regs = Registration.objects.filter(is_deleted=False).exclude(status=Registration.Status.REJECTED)
 
         nat_id_dup = bool(nat_id and active_regs.filter(national_id_number__iexact=nat_id).exists())
 
@@ -1418,7 +1650,7 @@ class RegistrationViewSet(
         GET /api/v1/registrations/{id}/download_pdf/
         Generates and downloads the single candidate official dossier PDF.
         """
-        reg = self.get_object()
+        reg = Registration.objects.select_related('category').get(pk=pk)
         try:
             pdf_bytes = generate_registration_pdf(reg)
             safe_name = "".join([c for c in reg.full_name if c.isalnum() or c == ' ']).strip()
@@ -1485,7 +1717,7 @@ class RegistrationViewSet(
         Returns a short-lived (5-minute) presigned S3 URL for the passport photo.
         Falls back to an absolute media URL in local dev.
         """
-        registration = self.get_object()
+        registration = Registration.objects.get(pk=pk)
         if not registration.passport_photo:
             return Response({'url': None})
 
@@ -1515,7 +1747,7 @@ class RegistrationViewSet(
         Returns a short-lived (5-minute) presigned S3 URL for the ID document.
         Falls back to an absolute media URL in local dev.
         """
-        registration = self.get_object()
+        registration = Registration.objects.get(pk=pk)
         if not registration.id_document:
             return Response({'url': None})
 

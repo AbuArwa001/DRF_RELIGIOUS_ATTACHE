@@ -435,3 +435,128 @@ def send_profile_update_email(registration, changed_fields=None, reason=None, ol
         return False
 
 
+def send_regret_email(registration, reason=None, custom_notes=None):
+    """
+    Sends an official regret email notification to a candidate whose registration
+    was removed / archived from the active competition roster.
+    """
+    if not registration or not registration.email or not registration.email.strip():
+        logger.info(f"Skipping regret email for registration ID {getattr(registration, 'id', None)}: No email address.")
+        return False
+
+    recipient = registration.email.strip()
+    category_name = registration.category.name_en if registration.category else "Unassigned"
+    ref_str = f"REF-{registration.id:05d}" if registration.id else "—"
+    institution_str = registration.nominating_institution or "—"
+    county_str = registration.county or "—"
+
+    # Combine custom_notes or deletion_reason or reason
+    notes_text = (custom_notes or reason or registration.deletion_reason or registration.reviewer_notes or "").strip()
+
+    notes_block = ""
+    if notes_text:
+        notes_block = f"""
+        <div style="background-color: #FEF2F2; border: 1px solid #FECACA; border-left: 5px solid #DC2626; padding: 18px 20px; margin-bottom: 24px; border-radius: 8px;">
+          <p style="font-size: 13px; font-weight: 800; color: #991B1B; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px;">
+            📌 Committee Note / Reason:
+          </p>
+          <p style="font-size: 14.5px; color: #7F1D1D; margin: 0; line-height: 1.65; white-space: pre-wrap; font-weight: 500;">{notes_text}</p>
+        </div>
+        """
+
+    html_message = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Application Status Notification | Quran Competition 2026</title>
+</head>
+<body style="font-family: Arial, sans-serif; background-color: #F3F4F6; margin: 0; padding: 24px 0;">
+  <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08);">
+    <!-- Header -->
+    <div style="background: linear-gradient(135deg, #0E7A4A 0%, #166534 100%); padding: 36px 32px; text-align: center;">
+      <h1 style="color: #ffffff; font-size: 24px; font-weight: 800; margin: 0 0 8px 0;">Quran Competition 2026</h1>
+      <p style="color: rgba(255,255,255,0.85); font-size: 14px; margin: 0;">Religious Attaché · Embassy of Saudi Arabia, Nairobi</p>
+    </div>
+    <div style="height: 4px; background: linear-gradient(90deg, #BFA84F, #D4C068, #BFA84F);"></div>
+
+    <!-- Body -->
+    <div style="padding: 32px;">
+      <p style="font-size: 16px; font-weight: 700; color: #111827; margin-bottom: 12px;">Assalamu Alaikum wa Rahmatullahi wa Barakatuh,</p>
+      <p style="font-size: 15px; font-weight: 600; color: #1F2937; margin-bottom: 16px;">Dear {registration.full_name},</p>
+      
+      <p style="font-size: 14.5px; color: #4B5563; line-height: 1.7; margin-bottom: 18px;">
+        Thank you for submitting your application for the <strong>Annual Quran Memorization Competition 2026</strong> organized by the Religious Attaché of the Embassy of the Kingdom of Saudi Arabia in Nairobi.
+      </p>
+
+      <p style="font-size: 14.5px; color: #4B5563; line-height: 1.7; margin-bottom: 22px;">
+        The registration and screening phase has concluded. Due to high candidate volume and strict quota regulations across categories and counties, we regret to inform you that your application was <strong style="color: #DC2626;">not selected</strong> to proceed to the examination rounds for this edition.
+      </p>
+
+      {notes_block}
+
+      <!-- Application Details -->
+      <p style="font-size: 13px; font-weight: 700; color: #374151; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px;">📋 Application Reference</p>
+      <div style="background: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 10px; overflow: hidden; margin-bottom: 24px;">
+        <div style="display: flex; padding: 12px 16px; border-bottom: 1px solid #E5E7EB;">
+          <span style="font-size: 12.5px; font-weight: 600; color: #6B7280; width: 140px; flex-shrink: 0;">Full Name</span>
+          <span style="font-size: 13px; font-weight: 700; color: #111827;">{registration.full_name}</span>
+        </div>
+        <div style="display: flex; padding: 12px 16px; border-bottom: 1px solid #E5E7EB;">
+          <span style="font-size: 12.5px; font-weight: 600; color: #6B7280; width: 140px; flex-shrink: 0;">Reference No.</span>
+          <span style="font-size: 13px; font-weight: 700; color: #111827;">{ref_str}</span>
+        </div>
+        <div style="display: flex; padding: 12px 16px; border-bottom: 1px solid #E5E7EB;">
+          <span style="font-size: 12.5px; font-weight: 600; color: #6B7280; width: 140px; flex-shrink: 0;">Category</span>
+          <span style="font-size: 13px; font-weight: 600; color: #111827;">{category_name}</span>
+        </div>
+        <div style="display: flex; padding: 12px 16px; border-bottom: 1px solid #E5E7EB;">
+          <span style="font-size: 12.5px; font-weight: 600; color: #6B7280; width: 140px; flex-shrink: 0;">Institution</span>
+          <span style="font-size: 13px; font-weight: 600; color: #111827;">{institution_str}</span>
+        </div>
+        <div style="display: flex; padding: 12px 16px;">
+          <span style="font-size: 12.5px; font-weight: 600; color: #6B7280; width: 140px; flex-shrink: 0;">County</span>
+          <span style="font-size: 13px; font-weight: 600; color: #111827;">{county_str}</span>
+        </div>
+      </div>
+
+      <p style="font-size: 14px; color: #4B5563; line-height: 1.7; margin-bottom: 16px;">
+        We deeply appreciate your noble effort and dedication to memorizing the Book of Allah. We wholeheartedly encourage you to continue your Quranic studies and look forward to your participation in future competitions.
+      </p>
+
+      <p style="font-size: 13.5px; color: #0E7A4A; font-weight: 700; line-height: 1.6; margin-bottom: 0;">
+        جزاكم الله خيراً وبارك الله فيكم ونفع بكم الإسلام والمسلمين<br />
+        <span style="color: #6B7280; font-weight: 500; font-size: 12.5px;">May Allah reward you abundantly and bless your continuous journey with the Holy Quran.</span>
+      </p>
+    </div>
+
+    <!-- Footer -->
+    <div style="background: #F9FAFB; border-top: 1px solid #E5E7EB; padding: 20px 32px; text-align: center; font-size: 12px; color: #6B7280;">
+      Religious Attaché — Embassy of the Kingdom of Saudi Arabia, Nairobi
+    </div>
+  </div>
+</body>
+</html>
+    """.strip()
+
+    subject = f"Competition Update: Application Status | Quran Competition 2026"
+    plain_message = strip_tags(html_message)
+    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@religiousattacheksa.co.ke')
+
+    try:
+        send_mail(
+            subject=subject,
+            message=plain_message,
+            from_email=from_email,
+            recipient_list=[recipient],
+            html_message=html_message,
+            fail_silently=True,
+        )
+        logger.info(f"Regret email successfully sent to {recipient}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send regret email to {recipient}: {e}")
+        return False
+
+
+

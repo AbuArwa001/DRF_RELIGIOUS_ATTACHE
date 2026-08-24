@@ -79,7 +79,7 @@ class Registration(models.Model):
         storage=PassportPhotoStorage(),
     )
 
-    # ── Review fields ────────────────────────────────────────────────────────
+    # ── Review & Archive fields ──────────────────────────────────────────────
     status = models.CharField(
         _('Status'),
         max_length=20,
@@ -89,6 +89,13 @@ class Registration(models.Model):
     reviewer_notes  = models.TextField(_('Reviewer notes'), blank=True)
     submitted_at    = models.DateTimeField(_('Submitted at'), auto_now_add=True)
     updated_at      = models.DateTimeField(_('Updated at'), auto_now=True)
+
+    # ── Soft-delete & Regret Email tracking ──────────────────────────────────
+    is_deleted          = models.BooleanField(_('Is deleted / archived'), default=False, db_index=True)
+    deleted_at          = models.DateTimeField(_('Deleted at'), null=True, blank=True)
+    deletion_reason     = models.TextField(_('Deletion reason / notes'), blank=True)
+    regret_email_sent   = models.BooleanField(_('Regret email sent'), default=False)
+    regret_email_sent_at = models.DateTimeField(_('Regret email sent at'), null=True, blank=True)
 
     class Meta:
         verbose_name        = _('Registration')

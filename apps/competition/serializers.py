@@ -46,17 +46,17 @@ class CompetitionInfoSerializer(serializers.ModelSerializer):
 
     def get_county_stats(self, obj):
         from django.db.models import Count
-        qs = Registration.objects.values('county').annotate(count=Count('id'))
+        qs = Registration.objects.filter(is_deleted=False).values('county').annotate(count=Count('id'))
         return {item['county']: item['count'] for item in qs if item['county']}
 
     def get_category_stats(self, obj):
         from django.db.models import Count
-        qs = Registration.objects.values('category').annotate(count=Count('id'))
+        qs = Registration.objects.filter(is_deleted=False).values('category').annotate(count=Count('id'))
         return {item['category']: item['count'] for item in qs if item['category'] is not None}
 
     def get_category_county_stats(self, obj):
         from django.db.models import Count
-        qs = Registration.objects.values('category', 'county').annotate(count=Count('id'))
+        qs = Registration.objects.filter(is_deleted=False).values('category', 'county').annotate(count=Count('id'))
         stats = {}
         for item in qs:
             cat_id = item['category']
@@ -91,17 +91,17 @@ class CompetitionInfoAdminSerializer(serializers.ModelSerializer):
 
     def get_county_stats(self, obj):
         from django.db.models import Count
-        qs = Registration.objects.values('county').annotate(count=Count('id'))
+        qs = Registration.objects.filter(is_deleted=False).values('county').annotate(count=Count('id'))
         return {item['county']: item['count'] for item in qs if item['county']}
 
     def get_category_stats(self, obj):
         from django.db.models import Count
-        qs = Registration.objects.values('category').annotate(count=Count('id'))
+        qs = Registration.objects.filter(is_deleted=False).values('category').annotate(count=Count('id'))
         return {item['category']: item['count'] for item in qs if item['category'] is not None}
 
     def get_category_county_stats(self, obj):
         from django.db.models import Count
-        qs = Registration.objects.values('category', 'county').annotate(count=Count('id'))
+        qs = Registration.objects.filter(is_deleted=False).values('category', 'county').annotate(count=Count('id'))
         stats = {}
         for item in qs:
             cat_id = item['category']
@@ -160,7 +160,7 @@ class RegistrationCreateSerializer(serializers.ModelSerializer):
             validate_age_for_category(dob, category)
 
         # ── Double registration prevention ──────────────────────────────────
-        active_regs = Registration.objects.all()
+        active_regs = Registration.objects.filter(is_deleted=False)
 
         nat_id = (attrs.get('national_id_number') or '').strip()
         if nat_id:
@@ -169,13 +169,11 @@ class RegistrationCreateSerializer(serializers.ModelSerializer):
                     "national_id_number": _("A participant with this National ID / Passport number is already registered.")
                 })
 
-
-        
         county = attrs.get('county')
 
         if category and county:
             limit = 10  # Enforced 10 spots per category per county as requested
-            count = Registration.objects.filter(category=category, county=county).count()
+            count = Registration.objects.filter(category=category, county=county, is_deleted=False).count()
             if count >= limit:
                 raise serializers.ValidationError({
                     "category": _(f"Registration limit of {limit} reached for {category.name_en} in {county} county.")
@@ -187,7 +185,7 @@ class RegistrationCreateSerializer(serializers.ModelSerializer):
 class RegistrationAdminSerializer(serializers.ModelSerializer):
     """
     Admin-only serializer for reviewing and updating registrations.
-    Includes all personal details, status, notes, computed age, and allows file updates.
+    Includes all personal details, status, notes, computed age, archive details, and allows file updates.
     """
     age           = serializers.SerializerMethodField()
     category_name = serializers.SerializerMethodField()
@@ -204,9 +202,15 @@ class RegistrationAdminSerializer(serializers.ModelSerializer):
             'nominating_institution', 'phone_number', 'alternative_phone', 'email',
             'id_document', 'passport_photo',
             'status', 'reviewer_notes',
+            'is_deleted', 'deleted_at', 'deletion_reason',
+            'regret_email_sent', 'regret_email_sent_at',
             'submitted_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'age', 'category_name', 'category_juz_count', 'submitted_at', 'updated_at']
+        read_only_fields = [
+            'id', 'age', 'category_name', 'category_juz_count',
+            'deleted_at', 'regret_email_sent_at',
+            'submitted_at', 'updated_at',
+        ]
 
     def validate_id_document(self, value):
         if value:

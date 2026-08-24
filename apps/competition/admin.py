@@ -22,9 +22,9 @@ class CategoryAdmin(admin.ModelAdmin):
 class RegistrationAdmin(admin.ModelAdmin):
     list_display = [
         'full_name', 'category', 'date_of_birth', 'age_display',
-        'nominating_institution', 'status_badge', 'submitted_at',
+        'nominating_institution', 'status_badge', 'is_deleted', 'regret_email_sent', 'submitted_at',
     ]
-    list_filter = ['status', 'category', 'submitted_at']
+    list_filter = ['is_deleted', 'regret_email_sent', 'status', 'category', 'submitted_at']
     search_fields = ['full_name', 'nominating_institution', 'email', 'phone_number']
     readonly_fields = [
         'submitted_at', 'updated_at', 'age_display',
