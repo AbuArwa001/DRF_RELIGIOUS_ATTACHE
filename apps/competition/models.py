@@ -128,6 +128,7 @@ class CompetitionSettings(models.Model):
     about_ar = models.TextField(_('About (Arabic)'), blank=True)
     county_registration_limit = models.PositiveIntegerField(_('Per-county registration limit'), null=True, blank=True, help_text=_("Leave blank for no limit."))
     category_registration_limit = models.PositiveIntegerField(_('Per-category registration limit'), null=True, blank=True, help_text=_("Maximum allowed registrants per memorisation category. Leave blank for no limit."))
+    county_category_limits = models.JSONField(_('Granular County-Category Limits'), default=dict, blank=True, help_text=_("JSON format: {'CountyName': {'category_id': limit}}. Overrides default limits."))
 
     class Meta:
         verbose_name = _('Competition Settings')

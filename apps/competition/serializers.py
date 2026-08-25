@@ -40,7 +40,7 @@ class CompetitionInfoSerializer(serializers.ModelSerializer):
             'venue_en', 'venue_ar', 'about_en', 'about_ar',
             'county_registration_limit', 'county_stats',
             'category_registration_limit', 'category_stats',
-            'category_county_stats',
+            'category_county_stats', 'county_category_limits',
         ]
         read_only_fields = fields
 
@@ -86,7 +86,7 @@ class CompetitionInfoAdminSerializer(serializers.ModelSerializer):
             'venue_en', 'venue_ar', 'about_en', 'about_ar',
             'county_registration_limit', 'county_stats',
             'category_registration_limit', 'category_stats',
-            'category_county_stats',
+            'category_county_stats', 'county_category_limits',
         ]
 
     def get_county_stats(self, obj):
@@ -172,7 +172,15 @@ class RegistrationCreateSerializer(serializers.ModelSerializer):
         county = attrs.get('county')
 
         if category and county:
-            limit = 10  # Enforced 10 spots per category per county as requested
+            settings = CompetitionSettings.load()
+            limit = 10
+            
+            granular = settings.county_category_limits or {}
+            if county in granular and str(category.id) in granular[county]:
+                limit = int(granular[county][str(category.id)])
+            elif settings.category_registration_limit is not None:
+                limit = settings.category_registration_limit
+
             count = Registration.objects.filter(category=category, county=county, is_deleted=False).count()
             if count >= limit:
                 raise serializers.ValidationError({
