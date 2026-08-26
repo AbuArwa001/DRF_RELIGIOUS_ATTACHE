@@ -1185,6 +1185,7 @@ class RegistrationViewSet(
         old_category_name = instance.category.name_en if instance.category else None
         old_photo_name = instance.passport_photo.name if instance.passport_photo else None
         old_doc_name = instance.id_document.name if instance.id_document else None
+        old_deletion_reason = instance.deletion_reason
 
         serializer = RegistrationAdminSerializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
@@ -1195,30 +1196,39 @@ class RegistrationViewSet(
             from django.core.cache import cache
             cache.delete('competition_info_public')
 
-        # Detect changed fields
-        changed_fields = {}
+        # Detect candidate-facing profile changed fields
+        profile_changed_fields = {}
         if old_full_name != updated_instance.full_name:
-            changed_fields['full_name'] = {'label': 'Full Name', 'old': old_full_name, 'new': updated_instance.full_name}
+            profile_changed_fields['full_name'] = {'label': 'Full Name', 'old': old_full_name, 'new': updated_instance.full_name}
         if old_institution != updated_instance.nominating_institution:
-            changed_fields['nominating_institution'] = {'label': 'Nominating Institution', 'old': old_institution, 'new': updated_instance.nominating_institution}
+            profile_changed_fields['nominating_institution'] = {'label': 'Nominating Institution', 'old': old_institution, 'new': updated_instance.nominating_institution}
         if old_email != updated_instance.email:
-            changed_fields['email'] = {'label': 'Email Address', 'old': old_email, 'new': updated_instance.email}
+            profile_changed_fields['email'] = {'label': 'Email Address', 'old': old_email, 'new': updated_instance.email}
         if old_phone != updated_instance.phone_number:
-            changed_fields['phone_number'] = {'label': 'Phone Number', 'old': old_phone, 'new': updated_instance.phone_number}
+            profile_changed_fields['phone_number'] = {'label': 'Phone Number', 'old': old_phone, 'new': updated_instance.phone_number}
         if old_alt_phone != updated_instance.alternative_phone:
-            changed_fields['alternative_phone'] = {'label': 'Alternative Phone', 'old': old_alt_phone, 'new': updated_instance.alternative_phone}
+            profile_changed_fields['alternative_phone'] = {'label': 'Alternative Phone', 'old': old_alt_phone, 'new': updated_instance.alternative_phone}
         if old_dob != updated_instance.date_of_birth:
-            changed_fields['date_of_birth'] = {'label': 'Date of Birth', 'old': str(old_dob), 'new': str(updated_instance.date_of_birth)}
+            profile_changed_fields['date_of_birth'] = {'label': 'Date of Birth', 'old': str(old_dob), 'new': str(updated_instance.date_of_birth)}
         if old_county != updated_instance.county:
-            changed_fields['county'] = {'label': 'County', 'old': old_county, 'new': updated_instance.county}
+            profile_changed_fields['county'] = {'label': 'County', 'old': old_county, 'new': updated_instance.county}
         if old_nat_id != updated_instance.national_id_number:
-            changed_fields['national_id_number'] = {'label': 'National ID / Passport', 'old': old_nat_id, 'new': updated_instance.national_id_number}
+            profile_changed_fields['national_id_number'] = {'label': 'National ID / Passport', 'old': old_nat_id, 'new': updated_instance.national_id_number}
         if old_category_id != updated_instance.category_id:
-            changed_fields['category'] = {'label': 'Memorization Category', 'old': old_category_name or 'Unassigned', 'new': updated_instance.category.name_en if updated_instance.category else 'Unassigned'}
+            profile_changed_fields['category'] = {'label': 'Memorization Category', 'old': old_category_name or 'Unassigned', 'new': updated_instance.category.name_en if updated_instance.category else 'Unassigned'}
         if ('passport_photo' in request.FILES) or (updated_instance.passport_photo and updated_instance.passport_photo.name != old_photo_name):
-            changed_fields['passport_photo'] = {'label': 'Passport Photo', 'old': 'Previous Photo', 'new': 'Updated Photo'}
+            profile_changed_fields['passport_photo'] = {'label': 'Passport Photo', 'old': 'Previous Photo', 'new': 'Updated Photo'}
         if ('id_document' in request.FILES) or (updated_instance.id_document and updated_instance.id_document.name != old_doc_name):
-            changed_fields['id_document'] = {'label': 'ID Document', 'old': 'Previous Document', 'new': 'Updated Document'}
+            profile_changed_fields['id_document'] = {'label': 'ID Document', 'old': 'Previous Document', 'new': 'Updated Document'}
+
+        # All changed fields including internal administrative notes for audit logging
+        all_changed_fields = dict(profile_changed_fields)
+        if old_deletion_reason != updated_instance.deletion_reason:
+            all_changed_fields['deletion_reason'] = {
+                'label': 'Archival Reason',
+                'old': old_deletion_reason or 'None',
+                'new': updated_instance.deletion_reason or 'None'
+            }
 
         send_email_flag = request.data.get('send_email', True)
         if isinstance(send_email_flag, str):
@@ -1228,12 +1238,12 @@ class RegistrationViewSet(
         reason = (request.data.get('reason') or request.data.get('reviewer_notes') or '').strip()
 
         if send_email_flag:
-            # If profile details changed, send profile update email
-            if changed_fields:
+            # If candidate profile details changed, send profile update email
+            if profile_changed_fields:
                 extra_recipients = [old_email] if (old_email and old_email != updated_instance.email) else None
                 email_sent = send_profile_update_email(
                     registration=updated_instance,
-                    changed_fields=changed_fields,
+                    changed_fields=profile_changed_fields,
                     reason=reason,
                     extra_recipients=extra_recipients,
                 )
@@ -1248,12 +1258,44 @@ class RegistrationViewSet(
             record_id=updated_instance.id,
             record_name=updated_instance.full_name,
             ip_address=request.META.get('REMOTE_ADDR'),
-            details={"changed_fields": changed_fields, "reason": reason}
+            details={"changed_fields": all_changed_fields, "reason": reason}
         )
 
         response_data = serializer.data
         response_data['email_sent'] = email_sent
         return Response(response_data)
+
+    @action(detail=True, methods=['patch', 'post'], permission_classes=[IsAdminUser], url_path='update_archival_reason')
+    def update_archival_reason(self, request, pk=None):
+        """
+        PATCH/POST /api/v1/registrations/{id}/update_archival_reason/
+        Body: {"reason": "Updated reason..."} or {"deletion_reason": "Updated reason..."}
+        """
+        registration = Registration.objects.get(pk=pk)
+        new_reason = (request.data.get('reason') if 'reason' in request.data else request.data.get('deletion_reason', '')) or ''
+        new_reason = new_reason.strip()
+        old_reason = registration.deletion_reason or ''
+
+        registration.deletion_reason = new_reason
+        registration.save(update_fields=['deletion_reason', 'updated_at'])
+
+        AuditLog.objects.create(
+            user=request.user.username if request.user and request.user.is_authenticated else None,
+            action='UPDATE',
+            module='Registration',
+            record_id=registration.id,
+            record_name=registration.full_name,
+            ip_address=request.META.get('REMOTE_ADDR'),
+            details={
+                "type": "update_archival_reason",
+                "old_reason": old_reason,
+                "new_reason": new_reason,
+                "message": f"Archival reason updated for {registration.full_name}."
+            }
+        )
+
+        serializer = RegistrationAdminSerializer(registration)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def destroy(self, request, *args, **kwargs):
         """
