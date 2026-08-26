@@ -242,4 +242,40 @@ class SoftDeleteAndRegretEmailTests(TestCase):
         self.assertTrue(self.reg2.regret_email_sent)
         self.assertEqual(len(mail.outbox), 2)
 
+    def test_update_archival_reason_via_action(self):
+        self.reg1.is_deleted = True
+        self.reg1.deletion_reason = "Initial reason"
+        self.reg1.save()
+
+        res = self.client.post(
+            f"/api/v1/registrations/{self.reg1.id}/update_archival_reason/",
+            {"reason": "Updated committee reason: Age criteria exceeded."},
+            format='json'
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['deletion_reason'], "Updated committee reason: Age criteria exceeded.")
+
+        self.reg1.refresh_from_db()
+        self.assertEqual(self.reg1.deletion_reason, "Updated committee reason: Age criteria exceeded.")
+
+    def test_update_archival_reason_via_patch(self):
+        self.reg1.is_deleted = True
+        self.reg1.deletion_reason = "Initial reason"
+        self.reg1.save()
+
+        mail.outbox.clear()
+        res = self.client.patch(
+            f"/api/v1/registrations/{self.reg1.id}/",
+            {"deletion_reason": "Corrected note: Incomplete documents."},
+            format='json'
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['deletion_reason'], "Corrected note: Incomplete documents.")
+
+        self.reg1.refresh_from_db()
+        self.assertEqual(self.reg1.deletion_reason, "Corrected note: Incomplete documents.")
+        # Updating archival reason should NOT trigger candidate update email
+        self.assertEqual(len(mail.outbox), 0)
+
+
 
