@@ -612,7 +612,7 @@ def send_status_update_email(registration):
         <div class="checklist-card">
           <div class="check-item">
             <span class="check-icon">✓</span>
-            <div><strong>Punctuality:</strong> Arrive at the examination hall by <strong>7:30 AM EAT</strong> sharp for roll call and seating verification.</div>
+            <div><strong>Punctuality:</strong>Candidates must report to their designated center as Early As Possible.</div>
           </div>
           <div class="check-item">
             <span class="check-icon">✓</span>
