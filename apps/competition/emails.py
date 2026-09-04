@@ -65,19 +65,26 @@ def send_status_update_email(registration):
     institution_display = registration.nominating_institution or "Private Candidate / Self-Nominated"
     assigned_center = get_county_center_info(registration.county)
 
-    # Dynamic competition settings dates
-    prelims_date_display = "6th – 7th September 2026"
+    # Dynamic competition settings dates (Official Competition Calendar)
+    prelims_date_display = "5th – 7th September 2026"
+    finals_date_display = "11th – 13th October 2026"
     try:
         from .models import CompetitionSettings
         cfg = CompetitionSettings.load()
         if cfg.preliminaries_date:
             p_start = cfg.preliminaries_date.strftime("%d %B %Y")
             if cfg.preliminaries_end_date and cfg.preliminaries_end_date != cfg.preliminaries_date:
-                prelims_date_display = f"{cfg.preliminaries_date.strftime('%d')} – {cfg.preliminaries_end_date.strftime('%d %B %Y')}"
+                prelims_date_display = f"{cfg.preliminaries_date.strftime('%-d')}th – {cfg.preliminaries_end_date.strftime('%-d')}th {cfg.preliminaries_end_date.strftime('%B %Y')}"
             else:
                 prelims_date_display = p_start
+        if cfg.finals_date:
+            f_start = cfg.finals_date.strftime("%d %B %Y")
+            if cfg.finals_end_date and cfg.finals_end_date != cfg.finals_date:
+                finals_date_display = f"{cfg.finals_date.strftime('%-d')}th – {cfg.finals_end_date.strftime('%-d')}th {cfg.finals_end_date.strftime('%B %Y')}"
+            else:
+                finals_date_display = f_start
     except Exception as e:
-        logger.debug(f"Using default prelims dates: {e}")
+        logger.debug(f"Using default competition dates: {e}")
 
     if is_approved:
         # ═══════════════════════════════════════════════════════════════════════
@@ -586,14 +593,14 @@ def send_status_update_email(registration):
             <div class="step-badge" style="background: #2563EB;">2</div>
             <div>
               <div class="step-title">Stage 2: Official Qualifiers & Finalists Announcement</div>
-              <div class="step-desc"><strong>October 2026</strong> — Highest-scoring reciters across all categories and counties are officially published and invited to Nairobi.</div>
+              <div class="step-desc"><strong>Late September 2026</strong> — Highest-scoring reciters across all categories and counties are officially published and invited to Nairobi.</div>
             </div>
           </div>
           <div class="roadmap-step">
             <div class="step-badge" style="background: #BFA84F; color: #000;">3</div>
             <div>
               <div class="step-title">Stage 3: Grand National Finals & Royal Awards Gala</div>
-              <div class="step-desc"><strong>4th – 6th December 2026 (Nairobi, Kenya)</strong> — The grand stage, closing ceremony, and distribution of official royal awards & certificates.</div>
+              <div class="step-desc"><strong>{finals_date_display} (Nairobi, Kenya)</strong> — The grand stage, closing ceremony, and distribution of official royal awards & certificates.</div>
             </div>
           </div>
         </div>

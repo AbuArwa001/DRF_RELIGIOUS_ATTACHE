@@ -145,12 +145,12 @@ class CompetitionSettings(models.Model):
     @classmethod
     def load(cls):
         obj, _ = cls.objects.get_or_create(pk=1, defaults={
-            'registration_open': '2026-08-07',
-            'registration_close': '2026-08-31',
-            'preliminaries_date': '2026-09-06',
+            'registration_open': '2026-08-13',
+            'registration_close': '2026-09-01',
+            'preliminaries_date': '2026-09-05',
             'preliminaries_end_date': '2026-09-07',
-            'finals_date': '2026-12-04',
-            'finals_end_date': '2026-12-06',
+            'finals_date': '2026-10-11',
+            'finals_end_date': '2026-10-13',
             'venue_en': 'Nairobi, Kenya',
             'venue_ar': 'نيروبي، كينيا',
         })
