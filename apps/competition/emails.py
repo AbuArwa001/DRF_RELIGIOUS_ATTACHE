@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 COUNTY_CENTERS = {
-    'nairobi': {'center': 'Jamia Mosque', 'region': 'Nairobi County', 'venue_full': 'Jamia Mosque (Main Hall), Banda Street, Nairobi Central'},
+    'nairobi': {'center': 'Jamia Mosque', 'region': 'Nairobi County', 'venue_full': 'Jamia Mosque, Banda Street, Nairobi Central'},
     'mombasa': {'center': 'Masjid Bilal', 'region': 'Coast Region', 'venue_full': 'Masjid Bilal, Mombasa Island'},
     'garissa': {'center': 'Masjid Andalus', 'region': 'North Eastern Region', 'venue_full': 'Masjid Andalus, Garissa Town'},
     'nakuru': {'center': 'Jamia Mosque', 'region': 'Rift Valley Region', 'venue_full': 'Jamia Mosque, Nakuru City'},
