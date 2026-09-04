@@ -174,3 +174,17 @@ if USE_S3:
 
     # When S3 is active, MEDIA_URL points at the bucket
     MEDIA_URL = f'https://{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com/'
+
+# ─── Email Configuration (SMTP / Nodemailer compatibility) ─────────────────────
+EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.smtp.EmailBackend')
+EMAIL_HOST = config('EMAIL_HOST', default=config('SMTP_HOST', default='localhost'))
+EMAIL_PORT = config('EMAIL_PORT', default=config('SMTP_PORT', default=587, cast=int), cast=int)
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=config('SMTP_PORT', default='587') == '587', cast=bool)
+EMAIL_USE_SSL = config('EMAIL_USE_SSL', default=config('SMTP_PORT', default='587') == '465', cast=bool)
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default=config('SMTP_USER', default=''))
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default=config('SMTP_PASS', default=''))
+DEFAULT_FROM_EMAIL = config(
+    'DEFAULT_FROM_EMAIL',
+    default=config('SMTP_FROM', default='Quran Competition <noreply@religiousattacheksa.co.ke>')
+)
+
