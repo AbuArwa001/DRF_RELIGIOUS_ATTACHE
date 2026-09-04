@@ -600,21 +600,9 @@ def send_status_update_email(registration):
 
         <!-- ═══ CANDIDATE INSTRUCTIONS & CHECKLIST ═════════════════════════ -->
         <div class="section-title">
-          <span>📌</span> Mandatory Candidate Instructions (What to Bring)
+          <span>📌</span> Mandatory Candidate Instructions
         </div>
         <div class="checklist-card">
-          <div class="check-item">
-            <span class="check-icon">✓</span>
-            <div><strong>Original Identification:</strong> You must present your original National ID, Passport, or Birth Certificate matching your application.</div>
-          </div>
-          <div class="check-item">
-            <span class="check-icon">✓</span>
-            <div><strong>Admission Pass Notice:</strong> Please bring a printed copy or digital presentation of this email containing your Roll Number (<strong>{ref_display}</strong>).</div>
-          </div>
-          <div class="check-item">
-            <span class="check-icon">✓</span>
-            <div><strong>Strict Islamic Dress Code:</strong> Formal modest attire reflecting the sanctity of the Holy Quran (Thobe / Kanzu for brothers; modest Abaya / Hijab for sisters).</div>
-          </div>
           <div class="check-item">
             <span class="check-icon">✓</span>
             <div><strong>Punctuality:</strong> Arrive at the examination hall by <strong>7:30 AM EAT</strong> sharp for roll call and seating verification.</div>
